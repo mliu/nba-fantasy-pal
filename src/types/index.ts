@@ -1,5 +1,6 @@
 export type TimeWindow = "season" | "30" | "15" | "7";
 export type DisplayMode = "avg" | "ev";
+export type ShootingDisplayMode = "pct" | "ratio";
 export type WeekKey = "week1" | "week2";
 
 export interface WeekOption {
@@ -39,6 +40,27 @@ export interface PlayerEntry {
     customDays: number | null;
 }
 
+export interface PlayerGame {
+    gameDate: string;
+    min: number;
+    pts: number;
+    reb: number;
+    ast: number;
+    stl: number;
+    blk: number;
+    to: number;
+    fgm: number;
+    fga: number;
+    tpm: number;
+    ftm: number;
+    fta: number;
+}
+
+export interface PlayerGameLog {
+    teamId: string;
+    games: PlayerGame[];
+}
+
 export interface PlayerStats {
     min: number;
     pts: number;
@@ -56,6 +78,7 @@ export interface PlayerStats {
     ftm: number;
     fta: number;
     gamesPlayed: number;
+    teamId?: string;
 }
 
 export const STAT_COLS: {

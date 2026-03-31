@@ -1,4 +1,4 @@
-import type { PlayerStats } from "../types";
+import type { PlayerGame, PlayerGameLog, PlayerStats, TimeWindow } from "../types";
 
 // Vite dev proxy routes — all ESPN traffic is proxied to avoid CORS issues.
 // See vite.config.ts for target mappings.
@@ -23,6 +23,7 @@ interface EspnSearchResult {
 
 interface GameLogEventMeta {
     gameDate: string;
+    team?: { id: string };
 }
 
 interface GameLogStatEvent {
@@ -88,6 +89,9 @@ export async function searchPlayers(
     for (const group of data.results ?? []) {
         if (!["players", "player"].includes(group.type)) continue;
         for (const item of (group.contents ?? []) as EspnSearchResult[]) {
+            // Only include NBA players (league id 46 in the uid)
+            if (!item.uid?.includes("~l:46~")) continue;
+
             // Extract numeric ESPN ID from uid (e.g. "s:40~l:46~a:5104157") or link URL
             const uidMatch = item.uid?.match(/~a:(\d+)/);
             const linkMatch = item.link?.web?.match(/\/id\/(\d+)\//);
@@ -126,10 +130,9 @@ function parseMadeAttempted(arr: string[], idx: number): [number, number] {
     return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0];
 }
 
-export async function getPlayerStats(
+export async function fetchPlayerGameLog(
     espnId: string,
-    timeWindow: "season" | "30" | "15" | "7",
-): Promise<PlayerStats> {
+): Promise<PlayerGameLog> {
     const url = `${WEB_API}/athletes/${espnId}/gamelog`;
     const res = await fetch(url);
     if (!res.ok)
@@ -148,81 +151,76 @@ export async function getPlayerStats(
     const stlIdx = idxOf(labels, "STL", "STEALS");
     const blkIdx = idxOf(labels, "BLK", "BLOCKS");
     const toIdx = idxOf(labels, "TO", "TOV", "TURNOVERS");
-    // FG/3PT/FT columns are "made-attempted" strings
     const fgIdx = idxOf(labels, "FG");
     const threePIdx = idxOf(labels, "3PT", "3PM", "3P");
     const ftIdx = idxOf(labels, "FT");
 
-    // Root events map: gameId → metadata (dates)
     const eventMeta = data.events ?? {};
-
-    // Stat events live in seasonTypes[0].categories (descending by date).
-    // Each category.events entry has the stats array and an eventId to join with eventMeta.
+    const teamId = Object.values(eventMeta)[0]?.team?.id ?? "";
     const categories = data.seasonTypes?.[0]?.categories ?? [];
 
-    // Determine cut-off date for time-window filtering
-    const now = new Date();
-    let cutoff: Date | null = null;
-    if (timeWindow !== "season") {
-        cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - parseInt(timeWindow, 10));
-    }
-
-    // Collect matching stat events. Categories are descending, so stop a category
-    // once its first event is already older than the cutoff.
-    const effectiveStatEvents: GameLogStatEvent[] = [];
-    outer: for (const category of categories) {
+    const games: PlayerGame[] = [];
+    for (const category of categories) {
         for (const statEvent of category.events ?? []) {
             const meta = eventMeta[statEvent.eventId];
             if (!meta) continue;
-            if (cutoff && new Date(meta.gameDate) < cutoff) break outer;
-            effectiveStatEvents.push(statEvent);
+            const s = statEvent.stats ?? [];
+            const [fgm, fga] = parseMadeAttempted(s, fgIdx);
+            const [tpm] = parseMadeAttempted(s, threePIdx);
+            const [ftm, fta] = parseMadeAttempted(s, ftIdx);
+            games.push({
+                gameDate: meta.gameDate,
+                min: val(s, minIdx),
+                pts: val(s, ptsIdx),
+                reb: val(s, rebIdx),
+                ast: val(s, astIdx),
+                stl: val(s, stlIdx),
+                blk: val(s, blkIdx),
+                to: val(s, toIdx),
+                fgm, fga, tpm, ftm, fta,
+            });
         }
     }
 
-    // Fall back to full season if no games in the requested window
-    if (effectiveStatEvents.length === 0 && timeWindow !== "season") {
-        for (const category of categories) {
-            effectiveStatEvents.push(...(category.events ?? []));
-        }
-    }
-
-    if (!effectiveStatEvents.length)
+    if (!games.length)
         throw new Error(`No games found for player ${espnId}`);
 
-    let totalMin = 0,
-        totalPts = 0,
-        totalReb = 0,
-        totalAst = 0,
-        totalStl = 0,
-        totalBlk = 0,
-        totalTo = 0,
-        total3PM = 0;
-    let totalFgm = 0,
-        totalFga = 0,
-        totalFtm = 0,
-        totalFta = 0;
+    return { teamId, games };
+}
 
-    for (const event of effectiveStatEvents) {
-        const s = event.stats ?? [];
-        totalMin += val(s, minIdx);
-        totalPts += val(s, ptsIdx);
-        totalReb += val(s, rebIdx);
-        totalAst += val(s, astIdx);
-        totalStl += val(s, stlIdx);
-        totalBlk += val(s, blkIdx);
-        totalTo += val(s, toIdx);
-        const [fgm, fga] = parseMadeAttempted(s, fgIdx);
-        const [tpm] = parseMadeAttempted(s, threePIdx);
-        const [ftm, fta] = parseMadeAttempted(s, ftIdx);
-        totalFgm += fgm;
-        totalFga += fga;
-        total3PM += tpm;
-        totalFtm += ftm;
-        totalFta += fta;
+export function computePlayerStats(
+    log: PlayerGameLog,
+    timeWindow: TimeWindow,
+): PlayerStats {
+    let filtered = log.games;
+
+    if (timeWindow !== "season") {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - parseInt(timeWindow, 10));
+        filtered = log.games.filter((g) => new Date(g.gameDate) >= cutoff);
+        if (filtered.length === 0) filtered = log.games;
     }
 
-    const n = effectiveStatEvents.length;
+    let totalMin = 0, totalPts = 0, totalReb = 0, totalAst = 0,
+        totalStl = 0, totalBlk = 0, totalTo = 0, total3PM = 0,
+        totalFgm = 0, totalFga = 0, totalFtm = 0, totalFta = 0;
+
+    for (const g of filtered) {
+        totalMin += g.min;
+        totalPts += g.pts;
+        totalReb += g.reb;
+        totalAst += g.ast;
+        totalStl += g.stl;
+        totalBlk += g.blk;
+        totalTo += g.to;
+        total3PM += g.tpm;
+        totalFgm += g.fgm;
+        totalFga += g.fga;
+        totalFtm += g.ftm;
+        totalFta += g.fta;
+    }
+
+    const n = filtered.length;
 
     return {
         min: totalMin / n,
@@ -240,6 +238,7 @@ export async function getPlayerStats(
         ftm: totalFtm / n,
         fta: totalFta / n,
         gamesPlayed: n,
+        teamId: log.teamId,
     };
 }
 

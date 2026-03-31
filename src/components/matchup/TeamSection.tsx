@@ -13,33 +13,21 @@ import {
     Divider,
     Tooltip,
 } from "@mui/material";
-import { useQueries } from "@tanstack/react-query";
 import { PlayerRow } from "./PlayerRow";
 import { AddPlayerSearch } from "./AddPlayerSearch";
-import {
-    getPlayerStats,
-    getTeamGamesInWeek,
-    type PlayerSearchResult,
-} from "../../api/espn";
 import type {
     PlayerEntry,
     PlayerStats,
     DisplayMode,
-    TimeWindow,
-    WeekKey,
+    ShootingDisplayMode,
 } from "../../types";
-import { STAT_COLS, WEEKS } from "../../types";
+import { STAT_COLS } from "../../types";
+import { useMatchup, type TeamContextData } from "../../context/MatchupContext";
 
 interface Props {
+    side: "my" | "opp";
     label: string;
-    teamName: string;
-    players: PlayerEntry[];
-    timeWindow: TimeWindow;
-    weekKey: WeekKey;
-    displayMode: DisplayMode;
     accentColor: string;
-    onTeamNameChange: (name: string) => void;
-    onPlayersChange: (players: PlayerEntry[]) => void;
 }
 
 function TotalsRow({
@@ -47,11 +35,13 @@ function TotalsRow({
     statsArr,
     schedulesArr,
     displayMode,
+    shootingDisplayMode,
 }: {
     players: PlayerEntry[];
     statsArr: (PlayerStats | undefined)[];
     schedulesArr: (number | undefined)[];
     displayMode: DisplayMode;
+    shootingDisplayMode: ShootingDisplayMode;
 }) {
     let totalMin = 0,
         totalPts = 0,
@@ -60,20 +50,21 @@ function TotalsRow({
         totalStl = 0,
         totalBlk = 0,
         totalTo = 0,
-        total3PM = 0;
+        total3PM = 0,
+        totalDays = 0;
     let totalFgm = 0,
         totalFga = 0,
         totalFtm = 0,
         totalFta = 0;
     let hasAny = false;
 
-    console.log(players);
     players.forEach((p, i) => {
         const s = statsArr[i];
         if (!s) return;
         hasAny = true;
         const days =
             p.customDays !== null ? p.customDays : (schedulesArr[i] ?? 0);
+        totalDays += days;
         const mult = displayMode === "ev" ? days : 1;
 
         totalMin += s.min * mult;
@@ -92,12 +83,12 @@ function TotalsRow({
     });
 
     const fmtCount = (v: number) => v.toFixed(1);
-    const fmtPct = (m: number, a: number) =>
-        a > 0
-            ? displayMode === "ev"
-                ? `${m.toFixed(1)}/${a.toFixed(1)}`
-                : `${((m / a) * 100).toFixed(1)}%`
-            : "—";
+    const fmtPct = (m: number, a: number) => {
+        if (!a) return "—";
+        return shootingDisplayMode === "ratio"
+            ? `${m.toFixed(1)}/${a.toFixed(1)}`
+            : `${((m / a) * 100).toFixed(1)}%`;
+    };
 
     const totalsStyle = {
         color: "#fede5d",
@@ -130,12 +121,12 @@ function TotalsRow({
                     {displayMode === "ev" ? "Week Total" : "Team Avg"}
                 </Typography>
             </TableCell>
-            <TableCell sx={{ py: 0.75 }} />
+            <TableCell sx={{ py: 0.75 }}>{hasAny ? totalDays : "-"}</TableCell>
             <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
                 {hasAny ? fmtCount(totalMin) : "—"}
             </TableCell>
             <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalPts) : "—"}
+                {hasAny ? fmtCount(total3PM) : "—"}
             </TableCell>
             <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
                 {hasAny ? fmtCount(totalReb) : "—"}
@@ -153,7 +144,7 @@ function TotalsRow({
                 {hasAny ? fmtCount(totalTo) : "—"}
             </TableCell>
             <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(total3PM) : "—"}
+                {hasAny ? fmtCount(totalPts) : "—"}
             </TableCell>
             <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
                 {hasAny ? fmtPct(totalFgm, totalFga) : "—"}
@@ -166,88 +157,27 @@ function TotalsRow({
     );
 }
 
-export function TeamSection({
-    label,
-    teamName,
-    players,
-    timeWindow,
-    weekKey,
-    displayMode,
-    accentColor,
-    onTeamNameChange,
-    onPlayersChange,
-}: Props) {
+export function TeamSection({ side, label, accentColor }: Props) {
     const [editingName, setEditingName] = useState(false);
-    const week = WEEKS.find((w) => w.key === weekKey)!;
+    const { myTeam, oppTeam, displayMode, shootingDisplayMode } = useMatchup();
+    const team: TeamContextData = side === "my" ? myTeam : oppTeam;
 
-    // Batch-fetch stats for every player in this team
-    const statsResults = useQueries({
-        queries: players.map((p) => ({
-            queryKey: ["playerStats", p.espnId, timeWindow],
-            queryFn: () => getPlayerStats(p.espnId, timeWindow),
-            staleTime: 1000 * 60 * 10,
-            enabled: !!p.espnId,
-        })),
-    });
-
-    // Batch-fetch schedules — one query per unique teamId to avoid duplicate key warnings
-    const uniqueTeamIds = [
-        ...new Set(players.map((p) => p.teamId).filter(Boolean)),
-    ];
-    const scheduleResults = useQueries({
-        queries: uniqueTeamIds.map((teamId) => ({
-            queryKey: ["teamSchedule", teamId, weekKey],
-            queryFn: () => getTeamGamesInWeek(teamId, week.start, week.end),
-            staleTime: 1000 * 60 * 30,
-        })),
-    });
-
-    const scheduleByTeamId = Object.fromEntries(
-        uniqueTeamIds.map((teamId, i) => [teamId, scheduleResults[i].data]),
-    );
-
-    const statsArr = statsResults.map((r) => r.data);
-    const schedulesArr = players.map((p) => scheduleByTeamId[p.teamId]);
-
-    // ── Mutation helpers ──────────────────────────────────────────────────────
-
-    const addPlayer = (result: PlayerSearchResult) => {
-        if (players.some((p) => p.espnId === result.espnId)) return;
-        onPlayersChange([
-            ...players,
-            {
-                espnId: result.espnId,
-                name: result.name,
-                teamId: result.teamId,
-                teamAbbr: result.teamAbbr,
-                customDays: null,
-            },
-        ]);
-    };
-
-    const removePlayer = (idx: number) => {
-        onPlayersChange(players.filter((_, i) => i !== idx));
-    };
-
-    const moveUp = (idx: number) => {
-        if (idx === 0) return;
-        const next = [...players];
-        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-        onPlayersChange(next);
-    };
-
-    const moveDown = (idx: number) => {
-        if (idx === players.length - 1) return;
-        const next = [...players];
-        [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-        onPlayersChange(next);
-    };
-
-    const changeDays = (idx: number, days: number | null) => {
-        const next = [...players];
-        next[idx] = { ...next[idx], customDays: days };
-        onPlayersChange(next);
-    };
+    const {
+        players,
+        teamName,
+        statsArr,
+        schedulesArr,
+        effectiveTeamIds,
+        uniqueTeamIds,
+        statsResults,
+        scheduleResults,
+        addPlayer,
+        removePlayer,
+        moveUp,
+        moveDown,
+        changeDays,
+        setTeamName,
+    } = team;
 
     return (
         <Paper
@@ -297,7 +227,7 @@ export function TeamSection({
                         size="small"
                         value={teamName}
                         autoFocus
-                        onChange={(e) => onTeamNameChange(e.target.value)}
+                        onChange={(e) => setTeamName(e.target.value)}
                         onBlur={() => setEditingName(false)}
                         onKeyDown={(e) => {
                             if (e.key === "Enter") setEditingName(false);
@@ -382,16 +312,27 @@ export function TeamSection({
                                 scheduledGames={schedulesArr[i] ?? 0}
                                 isLoadingSchedule={
                                     scheduleResults[
-                                        uniqueTeamIds.indexOf(player.teamId)
+                                        uniqueTeamIds.indexOf(
+                                            effectiveTeamIds[i],
+                                        )
                                     ]?.isLoading ?? false
                                 }
                                 displayMode={displayMode}
+                                shootingDisplayMode={shootingDisplayMode}
                                 isFirst={i === 0}
                                 isLast={i === players.length - 1}
                                 onDelete={() => removePlayer(i)}
                                 onMoveUp={() => moveUp(i)}
                                 onMoveDown={() => moveDown(i)}
-                                onChangeDays={(days) => changeDays(i, days)}
+                                onChangeDays={(days) =>
+                                    changeDays(
+                                        i,
+                                        days !== null &&
+                                            days === (schedulesArr[i] ?? null)
+                                            ? null
+                                            : days,
+                                    )
+                                }
                             />
                         ))}
                         {players.length > 0 && (
@@ -400,6 +341,7 @@ export function TeamSection({
                                 statsArr={statsArr}
                                 schedulesArr={schedulesArr}
                                 displayMode={displayMode}
+                                shootingDisplayMode={shootingDisplayMode}
                             />
                         )}
                     </TableBody>
