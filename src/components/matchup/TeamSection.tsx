@@ -352,7 +352,7 @@ export function TeamSection({ side, label, accentColor }: Props) {
 
             {/* Add player input */}
             <Box sx={{ px: 2, py: 1.25 }}>
-                <AddPlayerSearch onSelect={addPlayer} />
+                <AddPlayerSearch onSelect={addPlayer} excludeIds={players.map((p) => p.espnId)} />
             </Box>
         </Paper>
     );

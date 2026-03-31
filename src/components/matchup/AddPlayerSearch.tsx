@@ -11,9 +11,10 @@ import { searchPlayers, type PlayerSearchResult } from "../../api/espn";
 
 interface Props {
     onSelect: (player: PlayerSearchResult) => void;
+    excludeIds?: string[];
 }
 
-export function AddPlayerSearch({ onSelect }: Props) {
+export function AddPlayerSearch({ onSelect, excludeIds = [] }: Props) {
     const [inputValue, setInputValue] = useState("");
     const [debouncedQuery, setDebouncedQuery] = useState("");
 
@@ -32,7 +33,7 @@ export function AddPlayerSearch({ onSelect }: Props) {
     return (
         <Autocomplete
             size="small"
-            options={results}
+            options={results.filter((r) => !excludeIds.includes(r.espnId))}
             getOptionLabel={(opt) => opt.name}
             filterOptions={(x) => x}
             inputValue={inputValue}
