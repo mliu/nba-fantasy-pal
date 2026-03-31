@@ -1,10 +1,12 @@
 import type { PlayerGame, PlayerGameLog, PlayerStats, TimeWindow } from "../types";
 
-// Vite dev proxy routes — all ESPN traffic is proxied to avoid CORS issues.
-// See vite.config.ts for target mappings.
-const SITE_API = "/espn-site/apis/site/v2/sports/basketball/nba";
-const WEB_API = "/espn-web/apis/common/v3/sports/basketball/nba";
-const SEARCH_API = "/espn-web/apis/search/v2";
+// In dev, requests go through the Vite proxy to avoid CORS (see vite.config.ts).
+// In prod (GitHub Pages), call ESPN directly — their public APIs allow browser requests.
+const SITE_BASE = import.meta.env.DEV ? "/espn-site" : "https://site.api.espn.com";
+const WEB_BASE = import.meta.env.DEV ? "/espn-web" : "https://site.web.api.espn.com";
+const SITE_API = `${SITE_BASE}/apis/site/v2/sports/basketball/nba`;
+const WEB_API = `${WEB_BASE}/apis/common/v3/sports/basketball/nba`;
+const SEARCH_API = `${WEB_BASE}/apis/search/v2`;
 
 // ─── Types for raw ESPN responses ────────────────────────────────────────────
 
