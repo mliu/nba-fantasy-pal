@@ -36,6 +36,7 @@ export interface TeamContextData {
     statsResults: Array<{ isLoading: boolean; data?: PlayerGameLog }>;
     scheduleResults: Array<{ isLoading: boolean; data?: number }>;
     addPlayer: (result: PlayerSearchResult) => void;
+    addPlayers: (results: PlayerSearchResult[]) => void;
     removePlayer: (idx: number) => void;
     moveUp: (idx: number) => void;
     moveDown: (idx: number) => void;
@@ -129,6 +130,25 @@ function useTeamData(
         [players, setPlayers],
     );
 
+    const addPlayers = useCallback(
+        (results: PlayerSearchResult[]) => {
+            const fresh = results.filter(
+                (r) => !players.some((p) => p.espnId === r.espnId),
+            );
+            setPlayers([
+                ...players,
+                ...fresh.map((r) => ({
+                    espnId: r.espnId,
+                    name: r.name,
+                    teamId: r.teamId,
+                    teamAbbr: r.teamAbbr,
+                    customDays: null,
+                })),
+            ]);
+        },
+        [players, setPlayers],
+    );
+
     const removePlayer = useCallback(
         (idx: number) => {
             setPlayers(players.filter((_, i) => i !== idx));
@@ -175,6 +195,7 @@ function useTeamData(
         statsResults: gameLogResults,
         scheduleResults,
         addPlayer,
+        addPlayers,
         removePlayer,
         moveUp,
         moveDown,

@@ -1,5 +1,6 @@
 import type { IStorage } from './IStorage';
 import { CookieStorage } from './CookieStorage';
+import { WEEKS, getCurrentWeekKey } from '../types';
 import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey } from '../types';
 
 /**
@@ -64,7 +65,8 @@ export class StorageService {
   }
 
   getSelectedWeek(): WeekKey {
-    return this.storage.get<WeekKey>('selected_week') ?? 'week1';
+    const saved = this.storage.get<WeekKey>('selected_week');
+    return saved && WEEKS.some(w => w.key === saved) ? saved : getCurrentWeekKey();
   }
 
   setSelectedWeek(week: WeekKey): void {

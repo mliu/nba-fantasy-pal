@@ -249,7 +249,9 @@ export async function getTeamGamesInWeek(
     weekStart: Date,
     weekEnd: Date,
 ): Promise<number> {
-    const url = `${SITE_API}/teams/${teamId}/schedule?season=2026`;
+    // ESPN's season is the year the season ends in; Jul–Dec belongs to next year's season
+    const season = weekEnd.getFullYear() + (weekEnd.getMonth() >= 6 ? 1 : 0);
+    const url = `${SITE_API}/teams/${teamId}/schedule?season=${season}`;
     const res = await fetch(url);
     if (!res.ok)
         throw new Error(`Schedule failed for team ${teamId}: ${res.status}`);

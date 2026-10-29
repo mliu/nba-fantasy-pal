@@ -1,7 +1,7 @@
 export type TimeWindow = "season" | "30" | "15" | "7";
 export type DisplayMode = "avg" | "ev";
 export type ShootingDisplayMode = "pct" | "ratio";
-export type WeekKey = "week1" | "week2";
+export type WeekKey = string;
 
 export interface WeekOption {
     key: WeekKey;
@@ -10,20 +10,44 @@ export interface WeekOption {
     end: Date;
 }
 
-export const WEEKS: WeekOption[] = [
-    {
-        key: "week1",
-        label: "Week 1 (Mar 30 – Apr 5)",
-        start: new Date("2026-03-30T00:00:00"),
-        end: new Date("2026-04-05T23:59:59"),
-    },
-    {
-        key: "week2",
-        label: "Week 2 (Apr 6 – Apr 12)",
-        start: new Date("2026-04-06T00:00:00"),
-        end: new Date("2026-04-12T23:59:59"),
-    },
-];
+// Regular season: week 1 starts on opening night; every week after that runs Mon–Sun.
+const SEASON_START = new Date("2026-10-20T00:00:00");
+const SEASON_END = new Date("2027-04-11T23:59:59");
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const fmtDay = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+// Weeks up to and including the one after the current week, so next week can be previewed.
+function buildWeeks(today: Date): WeekOption[] {
+    const weeks: WeekOption[] = [];
+    let start = new Date(SEASON_START);
+    for (let n = 1; start <= SEASON_END; n++) {
+        const end = new Date(start);
+        // advance to the following Sunday (week 1 is the partial week from opening night)
+        end.setDate(end.getDate() + ((7 - end.getDay()) % 7));
+        end.setHours(23, 59, 59, 0);
+        weeks.push({
+            key: `week${n}`,
+            label: `Week ${n} (${fmtDay(start)} – ${fmtDay(end)})`,
+            start,
+            end,
+        });
+        const next = new Date(end.getTime() + 1000);
+        next.setHours(0, 0, 0, 0);
+        start = next;
+    }
+    const current = weeks.findIndex((w) => today <= w.end);
+    const last = current < 0 ? weeks.length - 1 : Math.min(current + 1, weeks.length - 1);
+    return weeks.slice(0, last + 1);
+}
+
+export const WEEKS: WeekOption[] = buildWeeks(new Date());
+
+export function getCurrentWeekKey(today: Date = new Date()): WeekKey {
+    const w = WEEKS.find((w) => today >= w.start && today <= w.end);
+    return (w ?? WEEKS[WEEKS.length - 1]).key;
+}
 
 export const TIME_WINDOWS: { value: TimeWindow; label: string }[] = [
     { value: "season", label: "Season Avg" },

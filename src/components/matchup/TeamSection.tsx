@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
     Box,
+    Button,
     Paper,
     Typography,
     Table,
@@ -15,6 +16,7 @@ import {
 } from "@mui/material";
 import { PlayerRow } from "./PlayerRow";
 import { AddPlayerSearch } from "./AddPlayerSearch";
+import { BulkAddDialog } from "./BulkAddDialog";
 import type {
     PlayerEntry,
     PlayerStats,
@@ -159,6 +161,7 @@ function TotalsRow({
 
 export function TeamSection({ side, label, accentColor }: Props) {
     const [editingName, setEditingName] = useState(false);
+    const [bulkOpen, setBulkOpen] = useState(false);
     const { myTeam, oppTeam, displayMode, shootingDisplayMode } = useMatchup();
     const team: TeamContextData = side === "my" ? myTeam : oppTeam;
 
@@ -172,6 +175,7 @@ export function TeamSection({ side, label, accentColor }: Props) {
         statsResults,
         scheduleResults,
         addPlayer,
+        addPlayers,
         removePlayer,
         moveUp,
         moveDown,
@@ -351,9 +355,17 @@ export function TeamSection({ side, label, accentColor }: Props) {
             <Divider sx={{ borderColor: `${accentColor}22` }} />
 
             {/* Add player input */}
-            <Box sx={{ px: 2, py: 1.25 }}>
+            <Box sx={{ px: 2, py: 1.25, display: "flex", gap: 1, alignItems: "center" }}>
                 <AddPlayerSearch onSelect={addPlayer} excludeIds={players.map((p) => p.espnId)} />
+                <Button size="small" onClick={() => setBulkOpen(true)}>
+                    Add multiple
+                </Button>
             </Box>
+            <BulkAddDialog
+                open={bulkOpen}
+                onClose={() => setBulkOpen(false)}
+                onAdd={addPlayers}
+            />
         </Paper>
     );
 }
