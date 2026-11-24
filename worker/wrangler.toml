@@ -1,0 +1,9 @@
+name = "nba-fantasy-pal-espn-proxy"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Sites allowed to read responses in a browser (comma-separated)
+ALLOWED_ORIGINS = "https://mliu.github.io,http://localhost:5173"
+# Only these ESPN league IDs are forwarded (comma-separated)
+ALLOWED_LEAGUE_IDS = "704463138"

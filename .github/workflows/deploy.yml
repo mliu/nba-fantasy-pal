@@ -32,6 +32,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
+        env:
+          # Cloudflare Worker URL from worker/ (repository variable, not a secret)
+          VITE_ESPN_PROXY_URL: ${{ vars.ESPN_PROXY_URL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

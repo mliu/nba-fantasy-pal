@@ -39,6 +39,7 @@ export interface TeamContextData {
     addPlayers: (results: PlayerSearchResult[]) => void;
     removePlayer: (idx: number) => void;
     clearPlayers: () => void;
+    replacePlayers: (results: PlayerSearchResult[]) => void;
     moveUp: (idx: number) => void;
     moveDown: (idx: number) => void;
     changeDays: (idx: number, days: number | null) => void;
@@ -59,6 +60,14 @@ interface MatchupContextValue {
 }
 
 const MatchupContext = createContext<MatchupContextValue | null>(null);
+
+const toEntry = (r: PlayerSearchResult): PlayerEntry => ({
+    espnId: r.espnId,
+    name: r.name,
+    teamId: r.teamId,
+    teamAbbr: r.teamAbbr,
+    customDays: null,
+});
 
 function useTeamData(
     players: PlayerEntry[],
@@ -136,18 +145,16 @@ function useTeamData(
             const fresh = results.filter(
                 (r) => !players.some((p) => p.espnId === r.espnId),
             );
-            setPlayers([
-                ...players,
-                ...fresh.map((r) => ({
-                    espnId: r.espnId,
-                    name: r.name,
-                    teamId: r.teamId,
-                    teamAbbr: r.teamAbbr,
-                    customDays: null,
-                })),
-            ]);
+            setPlayers([...players, ...fresh.map(toEntry)]);
         },
         [players, setPlayers],
+    );
+
+    const replacePlayers = useCallback(
+        (results: PlayerSearchResult[]) => {
+            setPlayers(results.map(toEntry));
+        },
+        [setPlayers],
     );
 
     const removePlayer = useCallback(
@@ -203,6 +210,7 @@ function useTeamData(
         addPlayers,
         removePlayer,
         clearPlayers,
+        replacePlayers,
         moveUp,
         moveDown,
         changeDays,
