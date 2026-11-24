@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import EventNoteIcon from "@mui/icons-material/EventNote";
+import UpdateIcon from "@mui/icons-material/Update";
 import { TeamSection } from "./TeamSection";
 import { MatchupProvider, useMatchup } from "../../context/MatchupContext";
 import type {
@@ -19,6 +20,7 @@ import type {
     DisplayMode,
     WeekKey,
     ShootingDisplayMode,
+    RestView,
 } from "../../types";
 import { WEEKS, TIME_WINDOWS } from "../../types";
 
@@ -28,10 +30,12 @@ function MatchupContent() {
         timeWindow,
         displayMode,
         shootingDisplayMode,
+        restView,
         setWeekKey,
         setTimeWindow,
         setDisplayMode,
         setShootingDisplayMode,
+        setRestView,
     } = useMatchup();
     const selectedWeek = WEEKS.find((w) => w.key === weekKey)!;
 
@@ -100,7 +104,26 @@ function MatchupContent() {
                         <EventNoteIcon sx={{ fontSize: 15, mr: 0.75 }} />
                         Week EV
                     </ToggleButton>
+                    <ToggleButton value="rest">
+                        <UpdateIcon sx={{ fontSize: 15, mr: 0.75 }} />
+                        Rest of Week
+                    </ToggleButton>
                 </ToggleButtonGroup>
+
+                {/* Rest of Week: which stats the player rows show */}
+                {displayMode === "rest" && (
+                    <ToggleButtonGroup
+                        value={restView}
+                        exclusive
+                        onChange={(_, v) => {
+                            if (v) setRestView(v as RestView);
+                        }}
+                        size="small"
+                    >
+                        <ToggleButton value="sofar">Week so far</ToggleButton>
+                        <ToggleButton value="remaining">Remaining</ToggleButton>
+                    </ToggleButtonGroup>
+                )}
 
                 {/* FG% / FT% display toggle */}
                 <ToggleButtonGroup
