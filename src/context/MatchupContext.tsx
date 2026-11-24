@@ -38,6 +38,7 @@ export interface TeamContextData {
     addPlayer: (result: PlayerSearchResult) => void;
     addPlayers: (results: PlayerSearchResult[]) => void;
     removePlayer: (idx: number) => void;
+    clearPlayers: () => void;
     moveUp: (idx: number) => void;
     moveDown: (idx: number) => void;
     changeDays: (idx: number, days: number | null) => void;
@@ -156,6 +157,10 @@ function useTeamData(
         [players, setPlayers],
     );
 
+    const clearPlayers = useCallback(() => {
+        setPlayers([]);
+    }, [setPlayers]);
+
     const moveUp = useCallback(
         (idx: number) => {
             if (idx === 0) return;
@@ -197,6 +202,7 @@ function useTeamData(
         addPlayer,
         addPlayers,
         removePlayer,
+        clearPlayers,
         moveUp,
         moveDown,
         changeDays,

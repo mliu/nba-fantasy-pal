@@ -14,11 +14,11 @@ import {
     Divider,
     Tooltip,
 } from "@mui/material";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweepOutlined";
 import { PlayerRow } from "./PlayerRow";
 import { AddPlayerSearch } from "./AddPlayerSearch";
 import { BulkAddDialog } from "./BulkAddDialog";
 import type {
-    PlayerEntry,
     PlayerStats,
     DisplayMode,
     ShootingDisplayMode,
@@ -32,57 +32,125 @@ interface Props {
     accentColor: string;
 }
 
+interface Totals {
+    hasAny: boolean;
+    days: number;
+    min: number;
+    pts: number;
+    reb: number;
+    ast: number;
+    stl: number;
+    blk: number;
+    to: number;
+    threePM: number;
+    fgm: number;
+    fga: number;
+    ftm: number;
+    fta: number;
+}
+
+function computeTotals(
+    team: TeamContextData,
+    displayMode: DisplayMode,
+): Totals {
+    const t: Totals = {
+        hasAny: false,
+        days: 0,
+        min: 0,
+        pts: 0,
+        reb: 0,
+        ast: 0,
+        stl: 0,
+        blk: 0,
+        to: 0,
+        threePM: 0,
+        fgm: 0,
+        fga: 0,
+        ftm: 0,
+        fta: 0,
+    };
+
+    team.players.forEach((p, i) => {
+        const s = team.statsArr[i];
+        if (!s) return;
+        t.hasAny = true;
+        const days =
+            p.customDays !== null ? p.customDays : (team.schedulesArr[i] ?? 0);
+        t.days += days;
+        const mult = displayMode === "ev" ? days : 1;
+
+        t.min += s.min * mult;
+        t.pts += s.pts * mult;
+        t.reb += s.reb * mult;
+        t.ast += s.ast * mult;
+        t.stl += s.stl * mult;
+        t.blk += s.blk * mult;
+        t.to += s.to * mult;
+        t.threePM += s.threePM * mult;
+        // Use actual FGM/FGA averages weighted by days for proper team FG%/FT%
+        t.fgm += s.fgm * mult;
+        t.fga += s.fga * mult;
+        t.ftm += s.ftm * mult;
+        t.fta += s.fta * mult;
+    });
+
+    return t;
+}
+
+// Margin (from this team's perspective) at which a category's color is fully saturated
+const FULL_COUNT_MARGIN = 0.3; // 30% relative difference
+const FULL_PCT_MARGIN = 0.05; // 5 percentage points
+
+/**
+ * Signed edge in [-1, 1] for a category: positive means this team is winning it.
+ * Returns null when there's nothing to compare (or the category isn't scored).
+ */
+function categoryEdge(
+    key: keyof PlayerStats,
+    mine: Totals,
+    theirs: Totals,
+): number | null {
+    if (!mine.hasAny || !theirs.hasAny) return null;
+    const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+
+    if (key === "fgPct" || key === "ftPct") {
+        const [m, a] = key === "fgPct" ? (["fgm", "fga"] as const) : (["ftm", "fta"] as const);
+        if (!mine[a] || !theirs[a]) return null;
+        const diff = mine[m] / mine[a] - theirs[m] / theirs[a];
+        return clamp(diff / FULL_PCT_MARGIN);
+    }
+
+    if (key === "min") return null;
+    const statKey = key as Exclude<keyof Totals, "hasAny">;
+    const a = mine[statKey];
+    const b = theirs[statKey];
+    const denom = Math.max(a, b);
+    if (!denom) return null;
+    // Fewer turnovers wins the category
+    const diff = (key === "to" ? b - a : a - b) / denom;
+    return clamp(diff / FULL_COUNT_MARGIN);
+}
+
+function edgeBackground(edge: number | null): string | undefined {
+    if (edge === null || edge === 0) return undefined;
+    const rgb = edge > 0 ? "114,241,184" : "254,68,80";
+    const alpha = 0.08 + 0.5 * Math.abs(edge);
+    return `rgba(${rgb},${alpha.toFixed(3)})`;
+}
+
 function TotalsRow({
-    players,
-    statsArr,
-    schedulesArr,
+    totals,
+    oppTotals,
     displayMode,
     shootingDisplayMode,
 }: {
-    players: PlayerEntry[];
-    statsArr: (PlayerStats | undefined)[];
-    schedulesArr: (number | undefined)[];
+    totals: Totals;
+    oppTotals: Totals;
     displayMode: DisplayMode;
     shootingDisplayMode: ShootingDisplayMode;
 }) {
-    let totalMin = 0,
-        totalPts = 0,
-        totalReb = 0,
-        totalAst = 0,
-        totalStl = 0,
-        totalBlk = 0,
-        totalTo = 0,
-        total3PM = 0,
-        totalDays = 0;
-    let totalFgm = 0,
-        totalFga = 0,
-        totalFtm = 0,
-        totalFta = 0;
-    let hasAny = false;
-
-    players.forEach((p, i) => {
-        const s = statsArr[i];
-        if (!s) return;
-        hasAny = true;
-        const days =
-            p.customDays !== null ? p.customDays : (schedulesArr[i] ?? 0);
-        totalDays += days;
-        const mult = displayMode === "ev" ? days : 1;
-
-        totalMin += s.min * mult;
-        totalPts += s.pts * mult;
-        totalReb += s.reb * mult;
-        totalAst += s.ast * mult;
-        totalStl += s.stl * mult;
-        totalBlk += s.blk * mult;
-        totalTo += s.to * mult;
-        total3PM += s.threePM * mult;
-        // Use actual FGM/FGA averages weighted by days for proper team FG%/FT%
-        totalFgm += s.fgm * mult;
-        totalFga += s.fga * mult;
-        totalFtm += s.ftm * mult;
-        totalFta += s.fta * mult;
-    });
+    const { hasAny } = totals;
+    const showEdges = displayMode === "ev";
 
     const fmtCount = (v: number) => v.toFixed(1);
     const fmtPct = (m: number, a: number) => {
@@ -97,6 +165,13 @@ function TotalsRow({
         fontWeight: 700,
         fontFamily: "monospace",
         fontSize: "0.82rem",
+    };
+
+    const cellValue = (key: keyof PlayerStats): string => {
+        if (!hasAny) return "—";
+        if (key === "fgPct") return fmtPct(totals.fgm, totals.fga);
+        if (key === "ftPct") return fmtPct(totals.ftm, totals.fta);
+        return fmtCount(totals[key as Exclude<keyof Totals, "hasAny">] as number);
     };
 
     return (
@@ -123,37 +198,22 @@ function TotalsRow({
                     {displayMode === "ev" ? "Week Total" : "Team Avg"}
                 </Typography>
             </TableCell>
-            <TableCell sx={{ py: 0.75 }}>{hasAny ? totalDays : "-"}</TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalMin) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(total3PM) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalReb) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalAst) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalStl) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalBlk) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalTo) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtCount(totalPts) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtPct(totalFgm, totalFga) : "—"}
-            </TableCell>
-            <TableCell align="right" sx={{ py: 0.75, ...totalsStyle }}>
-                {hasAny ? fmtPct(totalFtm, totalFta) : "—"}
-            </TableCell>
+            <TableCell sx={{ py: 0.75 }}>{hasAny ? totals.days : "-"}</TableCell>
+            {STAT_COLS.map(({ key }) => (
+                <TableCell
+                    key={key}
+                    align="right"
+                    sx={{
+                        py: 0.75,
+                        ...totalsStyle,
+                        backgroundColor: showEdges
+                            ? edgeBackground(categoryEdge(key, totals, oppTotals))
+                            : undefined,
+                    }}
+                >
+                    {cellValue(key)}
+                </TableCell>
+            ))}
             <TableCell sx={{ py: 0.75 }} />
         </TableRow>
     );
@@ -164,6 +224,7 @@ export function TeamSection({ side, label, accentColor }: Props) {
     const [bulkOpen, setBulkOpen] = useState(false);
     const { myTeam, oppTeam, displayMode, shootingDisplayMode } = useMatchup();
     const team: TeamContextData = side === "my" ? myTeam : oppTeam;
+    const otherTeam: TeamContextData = side === "my" ? oppTeam : myTeam;
 
     const {
         players,
@@ -177,6 +238,7 @@ export function TeamSection({ side, label, accentColor }: Props) {
         addPlayer,
         addPlayers,
         removePlayer,
+        clearPlayers,
         moveUp,
         moveDown,
         changeDays,
@@ -266,6 +328,25 @@ export function TeamSection({ side, label, accentColor }: Props) {
                 >
                     {players.length} player{players.length !== 1 ? "s" : ""}
                 </Typography>
+                {players.length > 0 && (
+                    <Button
+                        size="small"
+                        startIcon={<DeleteSweepIcon sx={{ fontSize: 16 }} />}
+                        onClick={() => {
+                            if (window.confirm(`Remove all players from ${teamName}?`))
+                                clearPlayers();
+                        }}
+                        sx={{
+                            ml: "auto",
+                            color: "#fe4450",
+                            opacity: 0.6,
+                            fontSize: "0.7rem",
+                            "&:hover": { opacity: 1 },
+                        }}
+                    >
+                        Remove all
+                    </Button>
+                )}
             </Box>
 
             {/* Table */}
@@ -341,9 +422,8 @@ export function TeamSection({ side, label, accentColor }: Props) {
                         ))}
                         {players.length > 0 && (
                             <TotalsRow
-                                players={players}
-                                statsArr={statsArr}
-                                schedulesArr={schedulesArr}
+                                totals={computeTotals(team, displayMode)}
+                                oppTotals={computeTotals(otherTeam, displayMode)}
                                 displayMode={displayMode}
                                 shootingDisplayMode={shootingDisplayMode}
                             />
