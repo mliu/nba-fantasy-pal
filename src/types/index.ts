@@ -1,5 +1,7 @@
 export type TimeWindow = "season" | "30" | "15" | "7";
-export type DisplayMode = "avg" | "ev";
+export type DisplayMode = "avg" | "ev" | "rest";
+// In "rest" mode, which stats the player rows show
+export type RestView = "sofar" | "remaining";
 export type ShootingDisplayMode = "pct" | "ratio";
 export type WeekKey = string;
 
@@ -62,9 +64,12 @@ export interface PlayerEntry {
     teamId: string;
     teamAbbr: string;
     customDays: number | null;
+    // Override for games left this week (e.g. streaming a player for only some of them)
+    customRestDays?: number | null;
 }
 
 export interface PlayerGame {
+    eventId: string;
     gameDate: string;
     min: number;
     pts: number;
@@ -103,6 +108,22 @@ export interface PlayerStats {
     fta: number;
     gamesPlayed: number;
     teamId?: string;
+}
+
+// Counting stats plus shooting volume — per game, projected, or actual totals
+export interface StatLine {
+    min: number;
+    pts: number;
+    reb: number;
+    ast: number;
+    stl: number;
+    blk: number;
+    to: number;
+    threePM: number;
+    fgm: number;
+    fga: number;
+    ftm: number;
+    fta: number;
 }
 
 export const STAT_COLS: {

@@ -1,4 +1,4 @@
-import type { PlayerGame, PlayerGameLog, PlayerStats, TimeWindow } from "../types";
+import type { PlayerGame, PlayerGameLog, PlayerStats, StatLine, TimeWindow } from "../types";
 
 // In dev, requests go through the Vite proxy to avoid CORS (see vite.config.ts).
 // In prod (GitHub Pages), call ESPN directly — their public APIs allow browser requests.
@@ -171,6 +171,7 @@ export async function fetchPlayerGameLog(
             const [tpm] = parseMadeAttempted(s, threePIdx);
             const [ftm, fta] = parseMadeAttempted(s, ftIdx);
             games.push({
+                eventId: statEvent.eventId,
                 gameDate: meta.gameDate,
                 min: val(s, minIdx),
                 pts: val(s, ptsIdx),
@@ -244,11 +245,17 @@ export function computePlayerStats(
     };
 }
 
+export interface ScheduledGame {
+    eventId: string;
+    date: string;
+    completed: boolean;
+}
+
 export async function getTeamGamesInWeek(
     teamId: string,
     weekStart: Date,
     weekEnd: Date,
-): Promise<number> {
+): Promise<ScheduledGame[]> {
     // ESPN's season is the year the season ends in; Jul–Dec belongs to next year's season
     const season = weekEnd.getFullYear() + (weekEnd.getMonth() >= 6 ? 1 : 0);
     const url = `${SITE_API}/teams/${teamId}/schedule?season=${season}`;
@@ -258,12 +265,58 @@ export async function getTeamGamesInWeek(
 
     const data = await res.json();
 
-    let count = 0;
+    const games: ScheduledGame[] = [];
     for (const event of data.events ?? []) {
-        const d = new Date(event.date ?? event.gameDate ?? "");
+        const date = event.date ?? event.gameDate ?? "";
+        const d = new Date(date);
         if (!isNaN(d.getTime()) && d >= weekStart && d <= weekEnd) {
-            count++;
+            games.push({
+                eventId: String(event.id),
+                date,
+                completed: !!event.competitions?.[0]?.status?.type?.completed,
+            });
         }
     }
-    return count;
+    return games;
+}
+
+export const EMPTY_LINE: StatLine = {
+    min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0,
+    threePM: 0, fgm: 0, fga: 0, ftm: 0, fta: 0,
+};
+
+export function scaleStats(s: PlayerStats, mult: number): StatLine {
+    return {
+        min: s.min * mult,
+        pts: s.pts * mult,
+        reb: s.reb * mult,
+        ast: s.ast * mult,
+        stl: s.stl * mult,
+        blk: s.blk * mult,
+        to: s.to * mult,
+        threePM: s.threePM * mult,
+        fgm: s.fgm * mult,
+        fga: s.fga * mult,
+        ftm: s.ftm * mult,
+        fta: s.fta * mult,
+    };
+}
+
+export function addLines(a: StatLine, b: StatLine): StatLine {
+    const out = { ...a };
+    for (const k of Object.keys(out) as (keyof StatLine)[]) out[k] += b[k];
+    return out;
+}
+
+// Actual totals from played games
+export function sumGames(games: PlayerGame[]): StatLine {
+    return games.reduce<StatLine>(
+        (t, g) =>
+            addLines(t, {
+                min: g.min, pts: g.pts, reb: g.reb, ast: g.ast, stl: g.stl,
+                blk: g.blk, to: g.to, threePM: g.tpm,
+                fgm: g.fgm, fga: g.fga, ftm: g.ftm, fta: g.fta,
+            }),
+        EMPTY_LINE,
+    );
 }
