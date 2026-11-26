@@ -2,7 +2,9 @@
 // ESPN cookies arrive per request in X-ESPN-S2 / X-ESPN-SWID headers and are never stored here.
 
 const ESPN_BASE = "https://lm-api-reads.fantasy.espn.com";
-const LEAGUE_PATH = /^\/apps\/fantasy\/v3\/games\/fba\/seasons\/\d{4}\/segments\/0\/leagues\/(\d+)$/;
+const BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const LEAGUE_PATH = /^\/apis\/v3\/games\/fba\/seasons\/\d{4}\/segments\/0\/leagues\/(\d+)$/;
 
 const list = (s) => (s ?? "").split(",").map((v) => v.trim()).filter(Boolean);
 
@@ -42,10 +44,14 @@ export default {
         // Cookie values can't contain separators; reject anything that could smuggle extra cookies
         if (/[;\s]/.test(s2) || /[;\s]/.test(swid)) return error(400, "Malformed ESPN credentials", cors);
 
+        // ESPN's load balancer 403s requests that don't carry browser-like headers, even with valid cookies
         const res = await fetch(ESPN_BASE + url.pathname + url.search, {
             headers: {
                 Cookie: `espn_s2=${s2}; SWID=${swid}`,
                 Accept: "application/json",
+                "User-Agent": BROWSER_USER_AGENT,
+                Referer: "https://fantasy.espn.com/",
+                Origin: "https://fantasy.espn.com",
             },
         });
 

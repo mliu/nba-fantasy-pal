@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -21,7 +21,7 @@ import {
 import { ESPN_PROXY_URL, fetchLeague, type League, type LeagueTeam } from '../../api/espnFantasy';
 import { useMatchup } from '../../context/MatchupContext';
 import { StorageService } from '../../storage/StorageService';
-import type { EspnLeagueCredentials } from '../../types';
+import { WEEKS, type EspnLeagueCredentials, type WeekKey } from '../../types';
 
 const store = StorageService.getInstance();
 
@@ -33,7 +33,8 @@ interface Props {
 const EMPTY_CREDS: EspnLeagueCredentials = { leagueId: '', espnS2: '', swid: '' };
 
 export function EspnImportDialog({ open, onClose }: Props) {
-  const { myTeam, oppTeam } = useMatchup();
+  const { myTeam, oppTeam, weekKey, setWeekKey } = useMatchup();
+  const [selectedWeek, setSelectedWeek] = useState<WeekKey>(weekKey);
   const [creds, setCreds] = useState<EspnLeagueCredentials>(() => store.getEspnCredentials() ?? EMPTY_CREDS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export function EspnImportDialog({ open, onClose }: Props) {
     onClose();
   };
 
-  const load = async () => {
+  const load = async (weekToLoad: WeekKey = selectedWeek) => {
     const trimmed = {
       leagueId: creds.leagueId.trim(),
       espnS2: creds.espnS2.trim(),
@@ -58,7 +59,7 @@ export function EspnImportDialog({ open, onClose }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchLeague(trimmed);
+      const result = await fetchLeague(trimmed, WEEKS.find((w) => w.key === weekToLoad));
       store.setEspnCredentials(trimmed);
       setCreds(trimmed);
       setLeague(result);
@@ -69,6 +70,19 @@ export function EspnImportDialog({ open, onClose }: Props) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Saved credentials: skip the form and load straight away (for the app's current week)
+  useEffect(() => {
+    if (!open || !ESPN_PROXY_URL || league) return;
+    setSelectedWeek(weekKey);
+    if (store.getEspnCredentials()) void load(weekKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const changeWeek = (w: WeekKey) => {
+    setSelectedWeek(w);
+    void load(w);
   };
 
   const forget = () => {
@@ -87,6 +101,7 @@ export function EspnImportDialog({ open, onClose }: Props) {
     };
     apply(myTeamId, myTeam);
     apply(oppTeamId, oppTeam);
+    setWeekKey(selectedWeek);
     close();
   };
 
@@ -154,6 +169,21 @@ export function EspnImportDialog({ open, onClose }: Props) {
           </Box>
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Week</InputLabel>
+              <Select
+                value={selectedWeek}
+                label="Week"
+                disabled={loading}
+                onChange={(e) => changeWeek(e.target.value as WeekKey)}
+              >
+                {WEEKS.map((w) => (
+                  <MenuItem key={w.key} value={w.key}>
+                    {w.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             {league.myTeamId === null && (
               <Alert severity="warning">Couldn't find a team owned by this SWID — pick one below.</Alert>
             )}
@@ -164,7 +194,8 @@ export function EspnImportDialog({ open, onClose }: Props) {
               label={<Typography variant="body2">Skip players in IR slots</Typography>}
             />
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-              This replaces the current players on each team you import.
+              Opponent is your matchup for the selected week; past weeks show rosters as of that
+              week's last day. This replaces the current players on each team you import.
             </Typography>
           </Box>
         )}
@@ -175,7 +206,7 @@ export function EspnImportDialog({ open, onClose }: Props) {
           <Button
             variant="contained"
             disabled={!credsComplete || loading}
-            onClick={load}
+            onClick={() => load()}
             startIcon={loading ? <CircularProgress size={14} /> : undefined}
           >
             Load league

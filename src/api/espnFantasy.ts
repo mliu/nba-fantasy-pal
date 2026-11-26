@@ -1,5 +1,6 @@
 import type { EspnLeagueCredentials } from "../types";
 import { ESPN_SEASON } from "../types";
+import type { WeekOption } from "../types";
 import type { PlayerSearchResult } from "./espn";
 
 // ESPN's league API doesn't allow browser requests, so it goes through the Worker in worker/
@@ -42,7 +43,7 @@ interface RawLeague {
         home?: { teamId: number };
         away?: { teamId: number };
     }[];
-    status?: { currentMatchupPeriod?: number };
+    status?: { currentMatchupPeriod?: number; latestScoringPeriod?: number };
 }
 
 // ─── Exported types ───────────────────────────────────────────────────────────
@@ -66,13 +67,17 @@ export interface League {
 
 // ─── API functions ────────────────────────────────────────────────────────────
 
-export async function fetchLeague(creds: EspnLeagueCredentials): Promise<League> {
-    if (!ESPN_PROXY_URL) throw new Error("ESPN proxy isn't configured (VITE_ESPN_PROXY_URL)");
+const DAY_MS = 24 * 60 * 60 * 1000;
 
+async function fetchLeagueData(
+    creds: EspnLeagueCredentials,
+    views: string[],
+    scoringPeriodId?: number,
+): Promise<RawLeague> {
+    const query = [...views.map((v) => `view=${v}`), ...(scoringPeriodId ? [`scoringPeriodId=${scoringPeriodId}`] : [])];
     const url =
-        `${ESPN_PROXY_URL}/apps/fantasy/v3/games/fba/seasons/${ESPN_SEASON}` +
-        `/segments/0/leagues/${encodeURIComponent(creds.leagueId)}` +
-        `?view=mTeam&view=mRoster&view=mMatchup`;
+        `${ESPN_PROXY_URL}/apis/v3/games/fba/seasons/${ESPN_SEASON}` +
+        `/segments/0/leagues/${encodeURIComponent(creds.leagueId)}?${query.join("&")}`;
     const res = await fetch(url, {
         headers: { "X-ESPN-S2": creds.espnS2, "X-ESPN-SWID": creds.swid },
     });
@@ -82,11 +87,35 @@ export async function fetchLeague(creds: EspnLeagueCredentials): Promise<League>
         const body = await res.json().catch(() => null);
         throw new Error(body?.error ?? `ESPN league request failed: ${res.status}`);
     }
+    return res.json();
+}
 
-    const data: RawLeague = await res.json();
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * Loads the league. With `week`, the opponent is whoever you play in that matchup period, and for
+ * past weeks the rosters are as they stood on the week's last day (via ESPN's scoringPeriodId).
+ * App week N is ESPN matchup period N.
+ */
+export async function fetchLeague(creds: EspnLeagueCredentials, week?: WeekOption): Promise<League> {
+    if (!ESPN_PROXY_URL) throw new Error("ESPN proxy isn't configured (VITE_ESPN_PROXY_URL)");
+
+    const data = await fetchLeagueData(creds, ["mTeam", "mRoster", "mMatchupScore", "mStatus"]);
     const swid = creds.swid.toUpperCase();
 
-    const teams: LeagueTeam[] = (data.teams ?? []).map((t) => ({
+    const currentPeriod = data.status?.currentMatchupPeriod;
+    const period = week ? Number(week.key.replace(/\D/g, "")) : currentPeriod;
+
+    // Past week: ESPN's default roster is today's, so ask for the roster on the week's last day.
+    // latestScoringPeriod is today's scoring period, so offset from it by calendar days.
+    let rosterData = data;
+    const latest = data.status?.latestScoringPeriod;
+    if (week && period && currentPeriod && period < currentPeriod && latest) {
+        const daysAgo = Math.round((startOfDay(new Date()) - startOfDay(week.end)) / DAY_MS);
+        rosterData = await fetchLeagueData(creds, ["mTeam", "mRoster"], Math.max(1, latest - daysAgo));
+    }
+
+    const teams: LeagueTeam[] = (rosterData.teams ?? []).map((t) => ({
         id: t.id,
         name: t.name || [t.location, t.nickname].filter(Boolean).join(" ") || `Team ${t.id}`,
         players: (t.roster?.entries ?? []).flatMap((e) => {
@@ -105,7 +134,6 @@ export async function fetchLeague(creds: EspnLeagueCredentials): Promise<League>
     const mine = (data.teams ?? []).find((t) =>
         [...(t.owners ?? []), t.primaryOwner ?? ""].some((o) => o.toUpperCase() === swid),
     );
-    const period = data.status?.currentMatchupPeriod;
     const matchup = mine
         ? data.schedule?.find(
               (m) =>
