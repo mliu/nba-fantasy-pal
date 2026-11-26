@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { WEEKS } from "../types";
 import { StorageService } from "../storage/StorageService";
+import { persistMeta } from "../queryPersist";
 
 const store = StorageService.getInstance();
 
@@ -97,6 +98,7 @@ function useTeamData(
             // Short enough that games finished this week show up in "Rest of Week" mode
             staleTime: 1000 * 60 * 15,
             enabled: !!p.espnId,
+            meta: persistMeta,
         })),
     });
 
