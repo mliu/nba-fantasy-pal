@@ -15,14 +15,17 @@ import {
     Tooltip,
 } from "@mui/material";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweepOutlined";
-import { PlayerRow } from "./PlayerRow";
+import { PlayerRow, formatStat } from "./PlayerRow";
 import { AddPlayerSearch } from "./AddPlayerSearch";
 import { BulkAddDialog } from "./BulkAddDialog";
 import type {
     PlayerStats,
     DisplayMode,
+    RestView,
     ShootingDisplayMode,
+    StatLine,
 } from "../../types";
+import { EMPTY_LINE, addLines, scaleStats } from "../../api/espn";
 import { STAT_COLS } from "../../types";
 import { useMatchup, type TeamContextData } from "../../context/MatchupContext";
 
@@ -32,69 +35,92 @@ interface Props {
     accentColor: string;
 }
 
-interface Totals {
-    hasAny: boolean;
+// What a set of rows shows: per-game averages, full-week projection, or the two halves of the week
+type LineKind = "avg" | "ev" | "sofar" | "remaining";
+
+interface RowData {
+    line: StatLine | null;
     days: number;
-    min: number;
-    pts: number;
-    reb: number;
-    ast: number;
-    stl: number;
-    blk: number;
-    to: number;
-    threePM: number;
-    fgm: number;
-    fga: number;
-    ftm: number;
-    fta: number;
 }
 
-function computeTotals(
-    team: TeamContextData,
-    displayMode: DisplayMode,
-): Totals {
-    const t: Totals = {
-        hasAny: false,
-        days: 0,
-        min: 0,
-        pts: 0,
-        reb: 0,
-        ast: 0,
-        stl: 0,
-        blk: 0,
-        to: 0,
-        threePM: 0,
-        fgm: 0,
-        fga: 0,
-        ftm: 0,
-        fta: 0,
-    };
+interface Totals extends StatLine {
+    hasAny: boolean;
+    days: number;
+}
 
-    team.players.forEach((p, i) => {
-        const s = team.statsArr[i];
-        if (!s) return;
-        t.hasAny = true;
-        const days =
-            p.customDays !== null ? p.customDays : (team.schedulesArr[i] ?? 0);
-        t.days += days;
-        const mult = displayMode === "ev" ? days : 1;
+const effectiveDays = (custom: number | null | undefined, auto: number | undefined) =>
+    custom ?? auto ?? 0;
 
-        t.min += s.min * mult;
-        t.pts += s.pts * mult;
-        t.reb += s.reb * mult;
-        t.ast += s.ast * mult;
-        t.stl += s.stl * mult;
-        t.blk += s.blk * mult;
-        t.to += s.to * mult;
-        t.threePM += s.threePM * mult;
-        // Use actual FGM/FGA averages weighted by days for proper team FG%/FT%
-        t.fgm += s.fgm * mult;
-        t.fga += s.fga * mult;
-        t.ftm += s.ftm * mult;
-        t.fta += s.fta * mult;
+function teamRows(team: TeamContextData, kind: LineKind): RowData[] {
+    return team.players.map((p, i) => {
+        const stats = team.statsArr[i];
+        switch (kind) {
+            case "avg":
+            case "ev": {
+                const days = effectiveDays(p.customDays, team.schedulesArr[i]);
+                const mult = kind === "ev" ? days : 1;
+                return { line: stats ? scaleStats(stats, mult) : null, days };
+            }
+            case "sofar": {
+                const wtd = team.weekToDateArr[i];
+                return { line: wtd?.line ?? null, days: wtd?.games ?? 0 };
+            }
+            case "remaining": {
+                const days = effectiveDays(p.customRestDays, team.remainingArr[i]);
+                return { line: stats ? scaleStats(stats, days) : null, days };
+            }
+        }
     });
+}
 
-    return t;
+function computeTotals(rows: RowData[]): Totals {
+    // Summing FGM/FGA (not averaging percentages) gives proper team FG%/FT%
+    return rows.reduce<Totals>(
+        (t, r) =>
+            r.line
+                ? { ...addLines(t, r.line), hasAny: true, days: t.days + r.days }
+                : t,
+        { ...EMPTY_LINE, hasAny: false, days: 0 },
+    );
+}
+
+function combineTotals(a: Totals, b: Totals): Totals {
+    return { ...addLines(a, b), hasAny: a.hasAny || b.hasAny, days: a.days + b.days };
+}
+
+interface TotalsRowSpec {
+    label: string;
+    totals: Totals;
+    // Opponent's matching row, for win/lose coloring (null = no coloring)
+    oppTotals: Totals | null;
+    decimals: number;
+}
+
+function totalsRowSpecs(
+    team: TeamContextData,
+    other: TeamContextData,
+    displayMode: DisplayMode,
+): TotalsRowSpec[] {
+    if (displayMode !== "rest") {
+        return [{
+            label: displayMode === "ev" ? "Week Total" : "Team Avg",
+            totals: computeTotals(teamRows(team, displayMode)),
+            oppTotals: displayMode === "ev" ? computeTotals(teamRows(other, "ev")) : null,
+            decimals: 1,
+        }];
+    }
+    const halves = (t: TeamContextData) => {
+        const sofar = computeTotals(teamRows(t, "sofar"));
+        const remaining = computeTotals(teamRows(t, "remaining"));
+        return { sofar, remaining, projected: combineTotals(sofar, remaining) };
+    };
+    const mine = halves(team);
+    const theirs = halves(other);
+    return [
+        { label: "Week So Far", totals: mine.sofar, oppTotals: theirs.sofar, decimals: 0 },
+        { label: "Rest of Week", totals: mine.remaining, oppTotals: theirs.remaining, decimals: 1 },
+        { label: "Projected Total", totals: mine.projected, oppTotals: theirs.projected, decimals: 1 },
+    ];
 }
 
 // Margin (from this team's perspective) at which a category's color is fully saturated
@@ -121,7 +147,7 @@ function categoryEdge(
     }
 
     if (key === "min") return null;
-    const statKey = key as Exclude<keyof Totals, "hasAny">;
+    const statKey = key as keyof StatLine;
     const a = mine[statKey];
     const b = theirs[statKey];
     const denom = Math.max(a, b);
@@ -139,39 +165,19 @@ function edgeBackground(edge: number | null): string | undefined {
 }
 
 function TotalsRow({
-    totals,
-    oppTotals,
-    displayMode,
+    spec: { label, totals, oppTotals, decimals },
     shootingDisplayMode,
 }: {
-    totals: Totals;
-    oppTotals: Totals;
-    displayMode: DisplayMode;
+    spec: TotalsRowSpec;
     shootingDisplayMode: ShootingDisplayMode;
 }) {
     const { hasAny } = totals;
-    const showEdges = displayMode === "ev";
-
-    const fmtCount = (v: number) => v.toFixed(1);
-    const fmtPct = (m: number, a: number) => {
-        if (!a) return "—";
-        return shootingDisplayMode === "ratio"
-            ? `${m.toFixed(1)}/${a.toFixed(1)}`
-            : `${((m / a) * 100).toFixed(1)}%`;
-    };
 
     const totalsStyle = {
         color: "#fede5d",
         fontWeight: 700,
         fontFamily: "monospace",
         fontSize: "0.82rem",
-    };
-
-    const cellValue = (key: keyof PlayerStats): string => {
-        if (!hasAny) return "—";
-        if (key === "fgPct") return fmtPct(totals.fgm, totals.fga);
-        if (key === "ftPct") return fmtPct(totals.ftm, totals.fta);
-        return fmtCount(totals[key as Exclude<keyof Totals, "hasAny">] as number);
     };
 
     return (
@@ -195,7 +201,7 @@ function TotalsRow({
                         fontSize: "0.68rem",
                     }}
                 >
-                    {displayMode === "ev" ? "Week Total" : "Team Avg"}
+                    {label}
                 </Typography>
             </TableCell>
             <TableCell sx={{ py: 0.75 }}>{hasAny ? totals.days : "-"}</TableCell>
@@ -206,12 +212,12 @@ function TotalsRow({
                     sx={{
                         py: 0.75,
                         ...totalsStyle,
-                        backgroundColor: showEdges
+                        backgroundColor: oppTotals
                             ? edgeBackground(categoryEdge(key, totals, oppTotals))
                             : undefined,
                     }}
                 >
-                    {cellValue(key)}
+                    {hasAny ? formatStat(totals, key, shootingDisplayMode, decimals) : "—"}
                 </TableCell>
             ))}
             <TableCell sx={{ py: 0.75 }} />
@@ -219,18 +225,21 @@ function TotalsRow({
     );
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n !== 1 ? "s" : ""}`;
+
 export function TeamSection({ side, label, accentColor }: Props) {
     const [editingName, setEditingName] = useState(false);
     const [bulkOpen, setBulkOpen] = useState(false);
-    const { myTeam, oppTeam, displayMode, shootingDisplayMode } = useMatchup();
+    const { myTeam, oppTeam, displayMode, shootingDisplayMode, restView } =
+        useMatchup();
     const team: TeamContextData = side === "my" ? myTeam : oppTeam;
     const otherTeam: TeamContextData = side === "my" ? oppTeam : myTeam;
 
     const {
         players,
         teamName,
-        statsArr,
         schedulesArr,
+        remainingArr,
         effectiveTeamIds,
         uniqueTeamIds,
         statsResults,
@@ -242,8 +251,34 @@ export function TeamSection({ side, label, accentColor }: Props) {
         moveUp,
         moveDown,
         changeDays,
+        changeRestDays,
         setTeamName,
     } = team;
+
+    const rowKind: LineKind =
+        displayMode === "rest" ? restView : displayMode;
+    const rows = teamRows(team, rowKind);
+
+    const daysTooltip = (i: number): string => {
+        const isLoadingSchedule =
+            scheduleResults[uniqueTeamIds.indexOf(effectiveTeamIds[i])]
+                ?.isLoading ?? false;
+        if (isLoadingSchedule) return "Loading schedule…";
+        const scheduled = schedulesArr[i] ?? 0;
+        const remaining = remainingArr[i] ?? 0;
+        switch (rowKind) {
+            case "sofar":
+                return `${plural(rows[i].days, "game")} played this week`;
+            case "remaining":
+                return players[i].customRestDays != null
+                    ? `Override active (auto: ${remaining})`
+                    : `${plural(remaining, "game")} left this week`;
+            default:
+                return players[i].customDays !== null
+                    ? `Override active (auto: ${scheduled})`
+                    : `${plural(scheduled, "scheduled game")} this week`;
+        }
+    };
 
     return (
         <Paper
@@ -357,7 +392,13 @@ export function TeamSection({ side, label, accentColor }: Props) {
                             <TableCell sx={{ width: 52 }} />
                             <TableCell>Player</TableCell>
                             <Tooltip
-                                title="Games playing this week (editable)"
+                                title={
+                                    rowKind === "sofar"
+                                        ? "Games played this week"
+                                        : rowKind === "remaining"
+                                          ? "Games left this week (editable)"
+                                          : "Games playing this week (editable)"
+                                }
                                 arrow
                             >
                                 <TableCell align="center" sx={{ width: 64 }}>
@@ -392,42 +433,48 @@ export function TeamSection({ side, label, accentColor }: Props) {
                             <PlayerRow
                                 key={player.espnId}
                                 player={player}
-                                stats={statsArr[i] ?? null}
+                                line={rows[i].line}
                                 isLoadingStats={statsResults[i].isLoading}
-                                scheduledGames={schedulesArr[i] ?? 0}
-                                isLoadingSchedule={
-                                    scheduleResults[
-                                        uniqueTeamIds.indexOf(
-                                            effectiveTeamIds[i],
-                                        )
-                                    ]?.isLoading ?? false
+                                days={rows[i].days}
+                                daysEditable={rowKind !== "sofar"}
+                                isCustomDays={
+                                    (rowKind === "remaining"
+                                        ? player.customRestDays
+                                        : player.customDays) != null
                                 }
-                                displayMode={displayMode}
+                                daysTooltip={daysTooltip(i)}
+                                decimals={rowKind === "sofar" ? 0 : 1}
                                 shootingDisplayMode={shootingDisplayMode}
                                 isFirst={i === 0}
                                 isLast={i === players.length - 1}
                                 onDelete={() => removePlayer(i)}
                                 onMoveUp={() => moveUp(i)}
                                 onMoveDown={() => moveDown(i)}
-                                onChangeDays={(days) =>
-                                    changeDays(
+                                onChangeDays={(days) => {
+                                    // Typing the automatic value clears the override
+                                    const [auto, change] =
+                                        rowKind === "remaining"
+                                            ? [remainingArr[i], changeRestDays]
+                                            : [schedulesArr[i], changeDays];
+                                    change(
                                         i,
-                                        days !== null &&
-                                            days === (schedulesArr[i] ?? null)
+                                        days !== null && days === (auto ?? null)
                                             ? null
                                             : days,
-                                    )
-                                }
+                                    );
+                                }}
                             />
                         ))}
-                        {players.length > 0 && (
-                            <TotalsRow
-                                totals={computeTotals(team, displayMode)}
-                                oppTotals={computeTotals(otherTeam, displayMode)}
-                                displayMode={displayMode}
-                                shootingDisplayMode={shootingDisplayMode}
-                            />
-                        )}
+                        {players.length > 0 &&
+                            totalsRowSpecs(team, otherTeam, displayMode).map(
+                                (spec) => (
+                                    <TotalsRow
+                                        key={spec.label}
+                                        spec={spec}
+                                        shootingDisplayMode={shootingDisplayMode}
+                                    />
+                                ),
+                            )}
                     </TableBody>
                 </Table>
             </TableContainer>

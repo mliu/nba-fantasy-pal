@@ -10,14 +10,18 @@ import {
     fetchPlayerGameLog,
     computePlayerStats,
     getTeamGamesInWeek,
+    sumGames,
     type PlayerSearchResult,
+    type ScheduledGame,
 } from "../api/espn";
 import type {
     PlayerEntry,
     PlayerGameLog,
     PlayerStats,
+    StatLine,
     TimeWindow,
     DisplayMode,
+    RestView,
     ShootingDisplayMode,
     WeekKey,
 } from "../types";
@@ -31,10 +35,14 @@ export interface TeamContextData {
     teamName: string;
     statsArr: (PlayerStats | undefined)[];
     schedulesArr: (number | undefined)[];
+    // Games not yet completed this week
+    remainingArr: (number | undefined)[];
+    // Actual stats from games already played this week
+    weekToDateArr: ({ line: StatLine; games: number } | undefined)[];
     effectiveTeamIds: string[];
     uniqueTeamIds: string[];
     statsResults: Array<{ isLoading: boolean; data?: PlayerGameLog }>;
-    scheduleResults: Array<{ isLoading: boolean; data?: number }>;
+    scheduleResults: Array<{ isLoading: boolean; data?: ScheduledGame[] }>;
     addPlayer: (result: PlayerSearchResult) => void;
     addPlayers: (results: PlayerSearchResult[]) => void;
     removePlayer: (idx: number) => void;
@@ -43,6 +51,7 @@ export interface TeamContextData {
     moveUp: (idx: number) => void;
     moveDown: (idx: number) => void;
     changeDays: (idx: number, days: number | null) => void;
+    changeRestDays: (idx: number, days: number | null) => void;
     setTeamName: (name: string) => void;
 }
 
@@ -53,10 +62,12 @@ interface MatchupContextValue {
     timeWindow: TimeWindow;
     displayMode: DisplayMode;
     shootingDisplayMode: ShootingDisplayMode;
+    restView: RestView;
     setWeekKey: (w: WeekKey) => void;
     setTimeWindow: (tw: TimeWindow) => void;
     setDisplayMode: (m: DisplayMode) => void;
     setShootingDisplayMode: (s: ShootingDisplayMode) => void;
+    setRestView: (v: RestView) => void;
 }
 
 const MatchupContext = createContext<MatchupContextValue | null>(null);
@@ -83,7 +94,8 @@ function useTeamData(
         queries: players.map((p) => ({
             queryKey: ["playerStats", p.espnId],
             queryFn: () => fetchPlayerGameLog(p.espnId),
-            staleTime: 1000 * 60 * 60 * 12,
+            // Short enough that games finished this week show up in "Rest of Week" mode
+            staleTime: 1000 * 60 * 15,
             enabled: !!p.espnId,
         })),
     });
@@ -97,7 +109,7 @@ function useTeamData(
         queries: uniqueTeamIds.map((teamId) => ({
             queryKey: ["teamSchedule", teamId, weekKey],
             queryFn: () => getTeamGamesInWeek(teamId, week.start, week.end),
-            staleTime: Infinity,
+            staleTime: 1000 * 60 * 15,
         })),
     });
 
@@ -108,7 +120,20 @@ function useTeamData(
     const statsArr = gameLogResults.map((r) =>
         r.data ? computePlayerStats(r.data, timeWindow) : undefined,
     );
-    const schedulesArr = effectiveTeamIds.map((id) => scheduleByTeamId[id]);
+    const schedulesArr = effectiveTeamIds.map(
+        (id) => scheduleByTeamId[id]?.length,
+    );
+    const remainingArr = effectiveTeamIds.map(
+        (id) => scheduleByTeamId[id]?.filter((g) => !g.completed).length,
+    );
+    // Games played this week = game log entries for events on the team's schedule this week
+    const weekToDateArr = gameLogResults.map((r, i) => {
+        const schedule = scheduleByTeamId[effectiveTeamIds[i]];
+        if (!r.data || !schedule) return undefined;
+        const weekEventIds = new Set(schedule.map((g) => g.eventId));
+        const played = r.data.games.filter((g) => weekEventIds.has(g.eventId));
+        return { line: sumGames(played), games: played.length };
+    });
 
     useEffect(() => {
         const needsUpdate = players.some(
@@ -197,11 +222,22 @@ function useTeamData(
         [players, setPlayers],
     );
 
+    const changeRestDays = useCallback(
+        (idx: number, days: number | null) => {
+            const next = [...players];
+            next[idx] = { ...next[idx], customRestDays: days };
+            setPlayers(next);
+        },
+        [players, setPlayers],
+    );
+
     return {
         players,
         teamName,
         statsArr,
         schedulesArr,
+        remainingArr,
+        weekToDateArr,
         effectiveTeamIds,
         uniqueTeamIds,
         statsResults: gameLogResults,
@@ -214,6 +250,7 @@ function useTeamData(
         moveUp,
         moveDown,
         changeDays,
+        changeRestDays,
         setTeamName,
     };
 }
@@ -242,6 +279,7 @@ export function MatchupProvider({ children }: { children: React.ReactNode }) {
     );
     const [shootingDisplayMode, setShootingDisplayMode] =
         useState<ShootingDisplayMode>("pct");
+    const [restView, setRestView] = useState<RestView>("remaining");
 
     const setMyPlayers = useCallback((p: PlayerEntry[]) => {
         setMyPlayersState(p);
@@ -298,10 +336,12 @@ export function MatchupProvider({ children }: { children: React.ReactNode }) {
                 timeWindow,
                 displayMode,
                 shootingDisplayMode,
+                restView,
                 setWeekKey,
                 setTimeWindow,
                 setDisplayMode,
                 setShootingDisplayMode,
+                setRestView,
             }}
         >
             {children}

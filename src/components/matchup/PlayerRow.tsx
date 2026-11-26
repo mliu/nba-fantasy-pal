@@ -15,18 +15,22 @@ import ArrowDownwardIcon from "@mui/icons-material/KeyboardArrowDown";
 import type {
     PlayerEntry,
     PlayerStats,
-    DisplayMode,
     ShootingDisplayMode,
+    StatLine,
 } from "../../types";
 import { STAT_COLS } from "../../types";
 
 interface Props {
     player: PlayerEntry;
-    stats: PlayerStats | null;
+    // Stats to show (per game, projected or actual) — null when not loaded
+    line: StatLine | null;
     isLoadingStats: boolean;
-    scheduledGames: number;
-    isLoadingSchedule: boolean;
-    displayMode: DisplayMode;
+    days: number;
+    // Read-only days show as plain text (e.g. games already played)
+    daysEditable: boolean;
+    isCustomDays: boolean;
+    daysTooltip: string;
+    decimals: number;
     shootingDisplayMode: ShootingDisplayMode;
     isFirst: boolean;
     isLast: boolean;
@@ -36,38 +40,31 @@ interface Props {
     onChangeDays: (days: number | null) => void;
 }
 
-function formatStat(
-    stats: PlayerStats,
+export function formatStat(
+    line: StatLine,
     key: keyof PlayerStats,
-    isRate: boolean,
-    displayMode: DisplayMode,
     shootingDisplayMode: ShootingDisplayMode,
-    days: number,
+    decimals: number,
 ): string {
-    const raw = stats[key] as number;
-    const mult = displayMode === "ev" ? days : 1;
-    if (isRate && shootingDisplayMode === "ratio") {
-        // In EV mode show projected makes/attempts for the week
-        const [madeKey, attKey] =
-            key === "fgPct"
-                ? (["fgm", "fga"] as const)
-                : (["ftm", "fta"] as const);
-        const made = (stats[madeKey] as number) * mult;
-        const att = (stats[attKey] as number) * mult;
-        return `${made.toFixed(1)}/${att.toFixed(1)}`;
+    if (key === "fgPct" || key === "ftPct") {
+        const [made, att] =
+            key === "fgPct" ? [line.fgm, line.fga] : [line.ftm, line.fta];
+        if (shootingDisplayMode === "ratio")
+            return `${made.toFixed(decimals)}/${att.toFixed(decimals)}`;
+        return att ? `${((made / att) * 100).toFixed(1)}%` : "—";
     }
-    if (isRate) return `${raw.toFixed(1)}%`;
-    const v = displayMode === "ev" ? raw * mult : raw;
-    return v.toFixed(1);
+    return (line[key as keyof StatLine] as number).toFixed(decimals);
 }
 
 export function PlayerRow({
     player,
-    stats,
+    line,
     isLoadingStats,
-    scheduledGames,
-    isLoadingSchedule,
-    displayMode,
+    days,
+    daysEditable,
+    isCustomDays: isCustom,
+    daysTooltip,
+    decimals,
     shootingDisplayMode,
     isFirst,
     isLast,
@@ -76,10 +73,6 @@ export function PlayerRow({
     onMoveDown,
     onChangeDays,
 }: Props) {
-    const effectiveDays =
-        player.customDays !== null ? player.customDays : scheduledGames;
-    const isCustom = player.customDays !== null;
-
     return (
         <TableRow>
             {/* Reorder controls */}
@@ -125,50 +118,50 @@ export function PlayerRow({
 
             {/* Days input */}
             <TableCell sx={{ py: 0.5, width: 64 }}>
-                <Tooltip
-                    title={
-                        isLoadingSchedule
-                            ? "Loading schedule…"
-                            : isCustom
-                              ? `Override active (auto: ${scheduledGames})`
-                              : `${scheduledGames} scheduled game${scheduledGames !== 1 ? "s" : ""} this week`
-                    }
-                    arrow
-                >
-                    <TextField
-                        type="number"
-                        size="small"
-                        value={effectiveDays}
-                        onChange={(e) => {
-                            const n = parseInt(e.target.value, 10);
-                            onChangeDays(
-                                isNaN(n) ? null : Math.max(0, Math.min(7, n)),
-                            );
-                        }}
-                        inputProps={{
-                            min: 0,
-                            max: 7,
-                            style: {
-                                textAlign: "center",
-                                padding: "3px 4px",
-                                width: 36,
-                                fontSize: "0.8rem",
-                            },
-                        }}
-                        sx={{
-                            "& .MuiInputBase-root": {
-                                height: 28,
-                                backgroundColor: isCustom
-                                    ? "rgba(254,222,93,0.08)"
-                                    : "transparent",
-                            },
-                            "& fieldset": {
-                                borderColor: isCustom
-                                    ? "#fede5d66 !important"
-                                    : undefined,
-                            },
-                        }}
-                    />
+                <Tooltip title={daysTooltip} arrow>
+                    {daysEditable ? (
+                        <TextField
+                            type="number"
+                            size="small"
+                            value={days}
+                            onChange={(e) => {
+                                const n = parseInt(e.target.value, 10);
+                                onChangeDays(
+                                    isNaN(n) ? null : Math.max(0, Math.min(7, n)),
+                                );
+                            }}
+                            inputProps={{
+                                min: 0,
+                                max: 7,
+                                style: {
+                                    textAlign: "center",
+                                    padding: "3px 4px",
+                                    width: 36,
+                                    fontSize: "0.8rem",
+                                },
+                            }}
+                            sx={{
+                                "& .MuiInputBase-root": {
+                                    height: 28,
+                                    backgroundColor: isCustom
+                                        ? "rgba(254,222,93,0.08)"
+                                        : "transparent",
+                                },
+                                "& fieldset": {
+                                    borderColor: isCustom
+                                        ? "#fede5d66 !important"
+                                        : undefined,
+                                },
+                            }}
+                        />
+                    ) : (
+                        <Typography
+                            variant="body2"
+                            sx={{ textAlign: "center", fontSize: "0.8rem" }}
+                        >
+                            {days}
+                        </Typography>
+                    )}
                 </Tooltip>
             </TableCell>
 
@@ -192,17 +185,15 @@ export function PlayerRow({
                                 bgcolor: "rgba(255,255,255,0.06)",
                             }}
                         />
-                    ) : stats ? (
+                    ) : line ? (
                         <span
                             style={{ color: isRate ? "#72f1b8" : "#ffffffee" }}
                         >
                             {formatStat(
-                                stats,
+                                line,
                                 key,
-                                isRate,
-                                displayMode,
                                 shootingDisplayMode,
-                                effectiveDays,
+                                decimals,
                             )}
                         </span>
                     ) : (

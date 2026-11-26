@@ -14,6 +14,7 @@ import {
 import BarChartIcon from "@mui/icons-material/BarChart";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownloadOutlined";
+import UpdateIcon from "@mui/icons-material/Update";
 import { TeamSection } from "./TeamSection";
 import { EspnImportDialog } from "./EspnImportDialog";
 import { MatchupProvider, useMatchup } from "../../context/MatchupContext";
@@ -22,6 +23,7 @@ import type {
     DisplayMode,
     WeekKey,
     ShootingDisplayMode,
+    RestView,
 } from "../../types";
 import { WEEKS, TIME_WINDOWS } from "../../types";
 
@@ -31,10 +33,12 @@ function MatchupContent() {
         timeWindow,
         displayMode,
         shootingDisplayMode,
+        restView,
         setWeekKey,
         setTimeWindow,
         setDisplayMode,
         setShootingDisplayMode,
+        setRestView,
     } = useMatchup();
     const selectedWeek = WEEKS.find((w) => w.key === weekKey)!;
     const [importOpen, setImportOpen] = useState(false);
@@ -104,7 +108,26 @@ function MatchupContent() {
                         <EventNoteIcon sx={{ fontSize: 15, mr: 0.75 }} />
                         Week EV
                     </ToggleButton>
+                    <ToggleButton value="rest">
+                        <UpdateIcon sx={{ fontSize: 15, mr: 0.75 }} />
+                        Rest of Week
+                    </ToggleButton>
                 </ToggleButtonGroup>
+
+                {/* Rest of Week: which stats the player rows show */}
+                {displayMode === "rest" && (
+                    <ToggleButtonGroup
+                        value={restView}
+                        exclusive
+                        onChange={(_, v) => {
+                            if (v) setRestView(v as RestView);
+                        }}
+                        size="small"
+                    >
+                        <ToggleButton value="sofar">Week so far</ToggleButton>
+                        <ToggleButton value="remaining">Remaining</ToggleButton>
+                    </ToggleButtonGroup>
+                )}
 
                 {/* FG% / FT% display toggle */}
                 <ToggleButtonGroup
