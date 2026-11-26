@@ -1,7 +1,8 @@
 import type { IStorage } from './IStorage';
 import { CookieStorage } from './CookieStorage';
+import { LocalStorage } from './LocalStorage';
 import { WEEKS, getCurrentWeekKey } from '../types';
-import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey } from '../types';
+import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey, EspnLeagueCredentials } from '../types';
 
 /**
  * StorageService is a singleton facade over an IStorage adapter.
@@ -12,6 +13,8 @@ import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey } from '../types';
 export class StorageService {
   private static instance: StorageService;
   private storage: IStorage;
+  // ESPN cookies stay out of `storage` (cookies would be sent to the host with every request)
+  private credentialStorage: IStorage = new LocalStorage();
 
   private constructor(storage: IStorage) {
     this.storage = storage;
@@ -87,5 +90,17 @@ export class StorageService {
 
   setDisplayMode(mode: DisplayMode): void {
     this.storage.set('display_mode', mode);
+  }
+
+  getEspnCredentials(): EspnLeagueCredentials | null {
+    return this.credentialStorage.get<EspnLeagueCredentials>('espn_credentials');
+  }
+
+  setEspnCredentials(creds: EspnLeagueCredentials): void {
+    this.credentialStorage.set('espn_credentials', creds);
+  }
+
+  clearEspnCredentials(): void {
+    this.credentialStorage.remove('espn_credentials');
   }
 }

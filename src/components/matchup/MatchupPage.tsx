@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     Box,
+    Button,
     FormControl,
     InputLabel,
     Select,
@@ -12,8 +13,10 @@ import {
 } from "@mui/material";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import EventNoteIcon from "@mui/icons-material/EventNote";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownloadOutlined";
 import UpdateIcon from "@mui/icons-material/Update";
 import { TeamSection } from "./TeamSection";
+import { EspnImportDialog } from "./EspnImportDialog";
 import { MatchupProvider, useMatchup } from "../../context/MatchupContext";
 import type {
     TimeWindow,
@@ -38,6 +41,7 @@ function MatchupContent() {
         setRestView,
     } = useMatchup();
     const selectedWeek = WEEKS.find((w) => w.key === weekKey)!;
+    const [importOpen, setImportOpen] = useState(false);
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 2.5 }, maxWidth: "100%" }}>
@@ -138,6 +142,14 @@ function MatchupContent() {
                     <ToggleButton value="ratio">M/A</ToggleButton>
                 </ToggleButtonGroup>
 
+                <Button
+                    size="small"
+                    startIcon={<CloudDownloadIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => setImportOpen(true)}
+                >
+                    Import from ESPN
+                </Button>
+
                 {/* Context chip */}
                 <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
                     <Chip
@@ -213,6 +225,11 @@ function MatchupContent() {
                     accentColor="#36f9f6"
                 />
             </Box>
+
+            <EspnImportDialog
+                open={importOpen}
+                onClose={() => setImportOpen(false)}
+            />
         </Box>
     );
 }

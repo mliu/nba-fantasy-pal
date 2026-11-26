@@ -44,6 +44,9 @@ function buildWeeks(today: Date): WeekOption[] {
     return weeks.slice(0, last + 1);
 }
 
+// ESPN numbers seasons by the year they end in
+export const ESPN_SEASON = SEASON_END.getFullYear();
+
 export const WEEKS: WeekOption[] = buildWeeks(new Date());
 
 export function getCurrentWeekKey(today: Date = new Date()): WeekKey {
@@ -66,6 +69,12 @@ export interface PlayerEntry {
     customDays: number | null;
     // Override for games left this week (e.g. streaming a player for only some of them)
     customRestDays?: number | null;
+}
+
+export interface EspnLeagueCredentials {
+    leagueId: string;
+    espnS2: string;
+    swid: string;
 }
 
 export interface PlayerGame {
