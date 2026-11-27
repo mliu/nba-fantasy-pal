@@ -20,3 +20,8 @@ export const BAD = "#fe4450";
 // rank delta: positive = moved toward 1st
 export const deltaColor = (d: number) => (d > 0 ? GOOD : d < 0 ? BAD : "rgba(255,255,255,0.55)");
 export const fmtRankDelta = (d: number) => (d > 0 ? `+${d}` : d < 0 ? `−${Math.abs(d)}` : "–");
+
+export const LEAGUE_SIZE = 12;
+
+// Internally rank 1 = best; shown Lineup Experts style, where 12 = strongest
+export const rk = (rank: number) => LEAGUE_SIZE + 1 - rank;

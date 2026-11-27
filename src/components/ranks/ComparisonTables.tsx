@@ -1,15 +1,11 @@
 import React from "react";
 import { Box, Paper, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import type { BacktestWeek } from "../../hooks/useCategoryRanks";
-import { CATEGORIES, rankDelta, summarize } from "../../utils/categoryRanks";
+import { CATEGORIES, rankDelta } from "../../utils/categoryRanks";
 import type { CatRanks } from "../../utils/categoryRanks";
 import type { ScenarioComparison } from "../../utils/scenario";
-import { deltaColor, fmtDelta, fmtRankDelta, fmtValue } from "./format";
+import { LEAGUE_SIZE, deltaColor, fmtDelta, fmtRankDelta, fmtValue, rk } from "./format";
 
-const LEAGUE_SIZE = 12;
-
-// Internally rank 1 = best; shown Lineup Experts style, where 12 = strongest
-const rk = (rank: number) => LEAGUE_SIZE + 1 - rank;
 
 // Red (weakest) → amber → green (strongest). `shown` is the displayed rank, possibly fractional.
 function strengthColor(shown: number): string {
@@ -43,7 +39,7 @@ function Header({ first }: { first: string }) {
                 {CATEGORIES.map((c) => (
                     <TableCell key={c.key} sx={headCell}>{c.label}</TableCell>
                 ))}
-                <TableCell sx={headCell}>Roto pts</TableCell>
+                <TableCell sx={headCell}>Places gained</TableCell>
             </TableRow>
         </TableHead>
     );
@@ -54,8 +50,8 @@ function Header({ first }: { first: string }) {
 export function ProjectionTable({ cmp }: { cmp: ScenarioComparison }) {
     const { current, scenario } = cmp;
     const d = rankDelta(current.ranks, scenario.ranks);
-    const sc = summarize(scenario.ranks, LEAGUE_SIZE).points;
-    const cu = summarize(current.ranks, LEAGUE_SIZE).points;
+    // Places gained across all 9 categories (negative = places lost)
+    const total = CATEGORIES.reduce((sum, c) => sum + d[c.key], 0);
 
     return (
         <Card
@@ -73,7 +69,7 @@ export function ProjectionTable({ cmp }: { cmp: ScenarioComparison }) {
                                 <span style={{ color: "rgba(255,255,255,0.5)" }}>({rk(current.ranks[c.key].rank)})</span>
                             </TableCell>
                         ))}
-                        <TableCell sx={cell}>{cu}</TableCell>
+                        <TableCell sx={cell} />
                     </TableRow>
                     <TableRow>
                         <TableCell sx={labelCell}>Scenario</TableCell>
@@ -84,7 +80,7 @@ export function ProjectionTable({ cmp }: { cmp: ScenarioComparison }) {
                                 </TableCell>
                             </Tooltip>
                         ))}
-                        <TableCell sx={{ ...cell, color: deltaColor(sc - cu), fontWeight: 700 }}>{sc}</TableCell>
+                        <TableCell sx={cell} />
                     </TableRow>
                     <TableRow>
                         <TableCell sx={labelCell}>Change</TableCell>
@@ -96,7 +92,7 @@ export function ProjectionTable({ cmp }: { cmp: ScenarioComparison }) {
                                 </div>
                             </TableCell>
                         ))}
-                        <TableCell sx={{ ...cell, color: deltaColor(sc - cu), fontWeight: 700 }}>{fmtRankDelta(sc - cu)}</TableCell>
+                        <TableCell sx={{ ...cell, color: deltaColor(total), fontWeight: 700 }}>{fmtRankDelta(total)}</TableCell>
                     </TableRow>
                 </TableBody>
             </Table>
@@ -126,16 +122,14 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
         );
     }
 
-    const before = weeks.map((w) => summarize(w.comparison.current.ranks, LEAGUE_SIZE));
-    const after = weeks.map((w) => summarize(w.comparison.scenario.ranks, LEAGUE_SIZE));
     const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
     // average rank per category across weeks
     const avgRank = (pick: (w: BacktestWeek) => CatRanks) =>
         CATEGORIES.map((c) => avg(weeks.map((w) => pick(w)[c.key].rank)));
     const avgBefore = avgRank((w) => w.comparison.current.ranks);
     const avgAfter = avgRank((w) => w.comparison.scenario.ranks);
-    const ptsBefore = avg(before.map((s) => s.points));
-    const ptsAfter = avg(after.map((s) => s.points));
+    // Average places gained per week = sum of the per-category average improvements
+    const avgTotalChange = avgBefore.reduce((sum, v, i) => sum + (v - avgAfter[i]), 0);
 
     return (
         <Card
@@ -147,7 +141,7 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
                 <TableBody>
                     {weeks.map((w, i) => {
                         const d = rankDelta(w.comparison.current.ranks, w.comparison.scenario.ranks);
-                        const pd = after[i].points - before[i].points;
+                        const pd = CATEGORIES.reduce((sum, c) => sum + d[c.key], 0);
                         return (
                             <TableRow key={w.period}>
                                 <TableCell sx={labelCell}>
@@ -170,8 +164,8 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
                                         </Tooltip>
                                     );
                                 })}
-                                <TableCell sx={{ ...cell, color: deltaColor(pd) }}>
-                                    {before[i].points} → {after[i].points}
+                                <TableCell sx={{ ...cell, color: deltaColor(pd), fontWeight: 700 }}>
+                                    {fmtRankDelta(pd)}
                                 </TableCell>
                             </TableRow>
                         );
@@ -181,7 +175,7 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
                         {avgBefore.map((v, i) => (
                             <TableCell key={i} sx={{ ...cell, backgroundColor: strengthColor(rk(v)) }}>{rk(v).toFixed(1)}</TableCell>
                         ))}
-                        <TableCell sx={cell}>{ptsBefore.toFixed(1)}</TableCell>
+                        <TableCell sx={cell} />
                     </TableRow>
                     <TableRow>
                         <TableCell sx={labelCell}>Avg rank scenario</TableCell>
@@ -190,9 +184,7 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
                                 {rk(v).toFixed(1)}
                             </TableCell>
                         ))}
-                        <TableCell sx={{ ...cell, color: deltaColor(ptsAfter - ptsBefore), fontWeight: 700 }}>
-                            {ptsAfter.toFixed(1)}
-                        </TableCell>
+                        <TableCell sx={cell} />
                     </TableRow>
                     <TableRow>
                         <TableCell sx={labelCell}>Change</TableCell>
@@ -201,14 +193,14 @@ export function BacktestTable({ weeks }: { weeks: BacktestWeek[] }) {
                                 {fmtDelta("pts", v - avgAfter[i], 1)}
                             </TableCell>
                         ))}
-                        <TableCell sx={{ ...cell, color: deltaColor(ptsAfter - ptsBefore), fontWeight: 700 }}>
-                            {fmtDelta("pts", ptsAfter - ptsBefore, 1)}
+                        <TableCell sx={{ ...cell, color: deltaColor(avgTotalChange), fontWeight: 700 }}>
+                            {fmtDelta("pts", avgTotalChange, 1)}
                         </TableCell>
                     </TableRow>
                 </TableBody>
             </Table>
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.45)", display: "block", mt: 1 }}>
-                Roto pts = 12 − rank + 1 summed over the 9 categories (max 108). The "Change" row is green where the scenario is better.
+                Places gained = rank changes summed over the 9 categories (+ is better); in the bottom row, the average per week. The "Change" row is green where the scenario is better.
                 Whether a player was on your team that week uses your end-of-week roster, so mid-week moves aren't reflected.
             </Typography>
         </Card>

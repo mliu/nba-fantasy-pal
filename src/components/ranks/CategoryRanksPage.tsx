@@ -15,6 +15,7 @@ import {
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import { AddPlayerSearch } from "../matchup/AddPlayerSearch";
 import { BacktestTable, ProjectionTable } from "./ComparisonTables";
+import { CategoryStrips } from "./CategoryStrips";
 import { useCategoryRanks } from "../../hooks/useCategoryRanks";
 import { StorageService } from "../../storage/StorageService";
 import { TIME_WINDOWS } from "../../types";
@@ -74,6 +75,16 @@ export function CategoryRanksPage() {
             ...spec.adds.map((a) => [a.espnId, a.name] as const),
         ]);
     const inScenario = rosterOf(scenario);
+    // IR players moved into the lineup for this scenario are just adds, since only active players count
+    const activatedIds = new Set(
+        data.myRoster.filter((p) => p.isInjuredReserve && scenario.adds.some((a) => a.espnId === p.espnId)).map((p) => p.espnId),
+    );
+    const activateIR = (p: { espnId: string; name: string; teamId: string; teamAbbr: string }) =>
+        setScenario({
+            ...scenario,
+            adds: [...scenario.adds, { espnId: p.espnId, name: p.name, teamId: p.teamId, teamAbbr: p.teamAbbr }],
+        });
+    const irCount = data.myRoster.filter((p) => p.isInjuredReserve && !activatedIds.has(p.espnId)).length;
     const removed = [...rosterOf(data.baseline)].filter(([id]) => !inScenario.has(id));
     const restore = (id: string) => {
         const base = data.baseline.adds.find((a) => a.espnId === id);
@@ -125,7 +136,7 @@ export function CategoryRanksPage() {
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
                     <Typography sx={{ fontWeight: 700, fontSize: "0.95rem" }}>Scenario</Typography>
                     <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)" }}>
-                        Starts as your Head-to-Head roster. Click a player to remove him; search to add players. This is a draft — your Head-to-Head roster isn't changed.
+                        Starts as your Head-to-Head roster. Click a player to remove him; search to add players (shown in green with a +). Click an IR player to move him into the lineup. This is a draft — your Head-to-Head roster isn't changed.
                     </Typography>
                     <Button
                         size="small"
@@ -141,28 +152,49 @@ export function CategoryRanksPage() {
                 <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
                     Your roster{data.league ? ` (${data.league.teams.find((t) => t.id === data.myTeamId)?.name ?? ""})` : ""}
                 </Typography>
+                {data.myRoster.length > 0 && (
+                    <Chip
+                        size="small"
+                        label={`${inScenario.size} active${irCount ? ` · ${irCount} IR` : ""}`}
+                        sx={{ ml: 1, height: 18, fontSize: "0.7rem" }}
+                    />
+                )}
                 <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 0.5, mb: 1.5 }}>
                     {data.myRoster
-                        .filter((p) => !scenario.dropIds.includes(p.espnId))
+                        // an IR player who's been activated shows below, as a scenario add
+                        .filter((p) => !scenario.dropIds.includes(p.espnId) && !activatedIds.has(p.espnId))
                         .map((p) => (
                             <Chip
                                 key={p.espnId}
                                 size="small"
                                 label={`${p.name}${p.isInjuredReserve ? " (IR)" : ""}`}
-                                disabled={p.isInjuredReserve}
-                                onClick={() => toggleDrop(p.espnId)}
+                                onClick={() => (p.isInjuredReserve ? activateIR(p) : toggleDrop(p.espnId))}
+                                title={p.isInjuredReserve ? "On IR: click to add him to the scenario lineup" : undefined}
                                 variant="outlined"
+                                sx={p.isInjuredReserve ? { opacity: 0.65, borderStyle: "dashed" } : undefined}
                             />
                         ))}
-                    {scenario.adds.map((a) => (
-                        <Chip
-                            key={a.espnId}
-                            size="small"
-                            label={a.name}
-                            onClick={() => removeAdd(a.espnId)}
-                            variant="outlined"
-                        />
-                    ))}
+                    {scenario.adds.map((a) => {
+                        // Players already on the Head-to-Head roster aren't scenario additions
+                        const isNew = !data.baseline.adds.some((b) => b.espnId === a.espnId);
+                        return (
+                            <Chip
+                                key={a.espnId}
+                                size="small"
+                                label={`${isNew ? "+ " : ""}${a.name}${activatedIds.has(a.espnId) ? " (from IR)" : ""}`}
+                                onClick={() => removeAdd(a.espnId)}
+                                variant="outlined"
+                                color={isNew ? "success" : "default"}
+                                title={
+                                    activatedIds.has(a.espnId)
+                                        ? "Moved off IR in this scenario only (click to put him back)"
+                                        : isNew
+                                          ? "Added in this scenario only (click to remove)"
+                                          : undefined
+                                }
+                            />
+                        );
+                    })}
                     {!data.myRoster.length && (
                         <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.4)" }}>Loading roster…</Typography>
                     )}
@@ -183,6 +215,9 @@ export function CategoryRanksPage() {
             </Paper>
 
             {data.projection && <ProjectionTable cmp={data.projection} />}
+            {data.projection && (
+                <CategoryStrips cmp={data.projection} others={data.standings.filter((t) => t.id !== data.myTeamId)} />
+            )}
             <BacktestTable weeks={data.backtest} />
         </Box>
     );
