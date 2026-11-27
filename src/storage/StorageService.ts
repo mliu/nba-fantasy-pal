@@ -2,7 +2,7 @@ import type { IStorage } from './IStorage';
 import { CookieStorage } from './CookieStorage';
 import { LocalStorage } from './LocalStorage';
 import { WEEKS, getCurrentWeekKey } from '../types';
-import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey, EspnLeagueCredentials } from '../types';
+import type { PlayerEntry, TimeWindow, DisplayMode, WeekKey, EspnLeagueCredentials, RosterScenario } from '../types';
 
 /**
  * StorageService is a singleton facade over an IStorage adapter.
@@ -98,6 +98,18 @@ export class StorageService {
 
   setEspnCredentials(creds: EspnLeagueCredentials): void {
     this.credentialStorage.set('espn_credentials', creds);
+  }
+
+  // The draft roster on the Category Ranks tab. Kept in localStorage (cookies are too small) and
+  // never touches the Head-to-Head rosters.
+  // null = never edited, i.e. the same as the Head-to-Head roster
+  getScenario(): RosterScenario | null {
+    return this.credentialStorage.get<RosterScenario>('rank_scenario');
+  }
+
+  setScenario(scenario: RosterScenario | null): void {
+    if (scenario) this.credentialStorage.set('rank_scenario', scenario);
+    else this.credentialStorage.remove('rank_scenario');
   }
 
   clearEspnCredentials(): void {

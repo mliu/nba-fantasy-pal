@@ -151,3 +151,9 @@ export const STAT_COLS: {
     { key: "fgPct", label: "FG%", isRate: true },
     { key: "ftPct", label: "FT%", isRate: true },
 ];
+
+// A draft roster change on the Category Ranks tab: players dropped from my team and players added
+export interface RosterScenario {
+    dropIds: string[];
+    adds: { espnId: string; name: string; teamId: string; teamAbbr: string }[];
+}

@@ -2,3 +2,7 @@
 dist/
 .env
 node_modules/
+# tsc build output (tsconfig.node.json is composite and emits these)
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

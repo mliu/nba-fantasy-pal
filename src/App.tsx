@@ -9,9 +9,12 @@ import {
   Typography,
 } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { idbPersister, PERSIST_BUSTER, PERSIST_MAX_AGE } from './queryPersist';
 import { synthwaveTheme } from './theme';
 import { MatchupPage } from './components/matchup/MatchupPage';
+import { CategoryRanksPage } from './components/ranks/CategoryRanksPage';
 import logo from './img/logo.svg';
 
 const queryClient = new QueryClient({
@@ -19,20 +22,33 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      // must be >= the persister's maxAge or restored entries are garbage-collected immediately
+      gcTime: PERSIST_MAX_AGE,
     },
   },
 });
 
 const TABS = [
-  { label: 'Head-to-Head', component: <MatchupPage /> },
-  // Future tabs can be added here
+  { label: 'Head-to-Head', component: <MatchupPage />, lazy: false },
+  // lazy: only mounted while selected, since it loads the whole league
+  { label: 'Category Ranks', component: <CategoryRanksPage />, lazy: true },
 ];
 
 export default function App() {
   const [tab, setTab] = useState(0);
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister: idbPersister,
+        maxAge: PERSIST_MAX_AGE,
+        buster: PERSIST_BUSTER,
+        dehydrateOptions: {
+          shouldDehydrateQuery: (q) => q.state.status === 'success' && q.meta?.persist === true,
+        },
+      }}
+    >
       <ThemeProvider theme={synthwaveTheme}>
         <CssBaseline />
         <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default' }}>
@@ -82,11 +98,11 @@ export default function App() {
               hidden={tab !== i}
               sx={{ display: tab === i ? 'block' : 'none' }}
             >
-              {t.component}
+              {t.lazy && tab !== i ? null : t.component}
             </Box>
           ))}
         </Box>
       </ThemeProvider>
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }
